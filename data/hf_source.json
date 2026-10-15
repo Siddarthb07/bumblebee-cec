@@ -1,0 +1,67 @@
+{
+  "dataset": "asset_pack:dolly+wikitext+cosmopedia+smollm+finemath+fineweb_edu+wikipedia+hotpot+nq",
+  "n_passages": 11568,
+  "n_evals": 10693,
+  "splits": {
+    "in_domain": 10411,
+    "far_ood": 132,
+    "entity_gap": 150
+  },
+  "sources": [
+    {
+      "source": "dolly",
+      "dataset": "databricks/databricks-dolly-15k + bumblebee chat/math/code skill seed",
+      "n_passages": 977,
+      "n_evals": 1116,
+      "splits": {
+        "in_domain": 1014,
+        "entity_gap": 20,
+        "far_ood": 82
+      },
+      "answer_style": "full_sentence_generative",
+      "seed": 7,
+      "scaling_hypothesis": "At larger data/param scale, SoftCorrelator + recurrent local state aims to keep linear-time evidence binding and abstention, targeting transformer limits: quadratic attention cost, forced answering, and opaque ungrounded fluency."
+    },
+    {
+      "source": "wikitext/wikitext-2-raw-v1",
+      "n_chunks": 800
+    },
+    {
+      "source": "HuggingFaceTB/smollm-corpus/cosmopedia-v2",
+      "n_chunks": 800
+    },
+    {
+      "source": "HuggingFaceTB/smollm-corpus/fineweb-edu-dedup",
+      "n_chunks": 600
+    },
+    {
+      "source": "HuggingFaceTB/finemath/finemath-3plus",
+      "n_chunks": 400
+    },
+    {
+      "source": "HuggingFaceFW/fineweb-edu",
+      "n_chunks": 2500,
+      "note": "streaming slice; full set is ~1.3T\u20135.4T tokens"
+    },
+    {
+      "source": "wikimedia/wikipedia/20231101.en",
+      "n_chunks": 2500
+    },
+    {
+      "source": "hotpot_qa/distractor",
+      "n_chunks": 2000,
+      "n_evals": 1500,
+      "scanned_rows": 2333,
+      "note": "multi-hop contexts + gold answers for synthesize cascade"
+    },
+    {
+      "source": "google-research-datasets/natural_questions",
+      "n_chunks": 1000,
+      "n_evals": 800,
+      "scanned_rows": 2350,
+      "note": "streaming capped slice of full NQ (~307k train / multi-GB)"
+    }
+  ],
+  "errors": {},
+  "note": "CEC asset pack. Transformer-free correlator; no HF model weights loaded. Top-level n_evals and splits match data/evals/questions.jsonl after grow-entity-gap (150 entity-gap rows). The dolly source row below is the original ingest snapshot and still shows entity_gap 20."
+}

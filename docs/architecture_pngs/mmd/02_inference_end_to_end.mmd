@@ -1,0 +1,41 @@
+flowchart TD
+  Q[Raw_question_plus_optional_history] --> Intent[classify_intent]
+  Intent -->|live_or_unsafe| HardRefuse[Hard_refuse_live_or_unsafe]
+  Intent --> ModeCheck{mode}
+
+  ModeCheck -->|auto_or_corpus| Retrieve
+  ModeCheck -->|open_removed| OpenGone[refuse_open_lm_removed]
+
+  Retrieve[BM25_shortlist_top_passages] --> Loop
+
+  subgraph Loop [Per_candidate_passage]
+    EncQ[LocalStateEncoder_on_prompt]
+    EncP[LocalStateEncoder_on_passage]
+    SoftC[SoftCorrelator_sparsemax_mass]
+    Cov[CoverageGate_confidence]
+    EncQ --> SoftC
+    EncP --> SoftC
+    SoftC --> Cov
+  end
+
+  Loop --> Pick[Pick_passage_with_max_confidence]
+  Pick --> LexFloor[Lexical_floors_content_support_novel_ratio]
+  LexFloor --> Gen[GenerativeAnswerDecoder_GRU_LM]
+  Gen --> DegCheck{Degenerate_text}
+  DegCheck -->|yes| CapConf[Cap_confidence_below_threshold]
+  DegCheck -->|no| Decide
+  CapConf --> Decide
+
+  Decide[gate.decide] --> Faith{Faithfulness_ok}
+  Faith -->|conf_lt_tau| R1[refuse_low_coverage]
+  Faith -->|empty| R2[refuse_empty_decode]
+  Faith -->|unfaithful| R3[refuse_unfaithful_decode]
+  Faith -->|pass| Ans[answer_plus_citation_span_passage_id]
+
+  Ans --> Tag[Tag_mode_corpus_model_cec]
+  OpenGone --> Done[Response_JSON]
+  HardRefuse --> Done
+  R1 --> Done
+  R2 --> Done
+  R3 --> Done
+  Tag --> Done

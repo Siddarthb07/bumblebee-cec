@@ -1,0 +1,2 @@
+{"id": "packq_0_pack_ac6", "question": "What does the note titled notes/note say?", "split": "in_domain", "answerable": true, "answer": "Bumblebee uses SoftCorrelator with sparsemax.", "passage_id": "pack_ac655ebdcf54", "category": "pack_builder"}
+{"id": "pack_far_ood_seed", "question": "Who won the 2022 FIFA World Cup?", "split": "far_ood", "answerable": false, "answer": null, "passage_id": null, "category": "far"}

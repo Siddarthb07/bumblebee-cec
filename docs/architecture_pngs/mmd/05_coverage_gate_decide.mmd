@@ -1,0 +1,18 @@
+flowchart TD
+  qe["concat(q, e)"] --> MLP[MLP]
+  MLP --> Raw["raw = sigma(MLP)"]
+  Mass[m] --> Ent["H(m)"]
+  Ent --> Conc["concentration"]
+  Raw --> Mul["conf = raw * concentration"]
+  Conc --> Mul
+
+  Mul --> Lex["optional lexical floors"]
+  Lex --> Thr{conf >= tau}
+
+  Thr -->|no| LC[refuse_low_coverage]
+  Thr -->|yes| GenText[generated_or_extractive_span]
+  GenText --> Empty{non_empty}
+  Empty -->|no| ED[refuse_empty_decode]
+  Empty -->|yes| Faith[faithfulness_ok_vs_passage]
+  Faith -->|no| UF[refuse_unfaithful_decode]
+  Faith -->|yes| OK[status_answer]

@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: "Bumblebee CEC"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Boggarapu
+    given-names: Siddarth
+    email: siddarthb078@gmail.com
+repository-code: "https://github.com/Siddarthb07/bumblebee-cec"
+url: "https://github.com/Siddarthb07/bumblebee-cec"
+abstract: >-
+  Transformer-free closed-corpus correlator (Correlated Evidence Cells).
+  Asks, cites, or refuses from a frozen pack. Not a frontier language model.
+license: MIT
+version: 0.4.0
+date-released: 2026-10-15
+keywords:
+  - question-answering
+  - abstention
+  - retrieval
+  - correlator

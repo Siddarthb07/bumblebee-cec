@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bumblebee-cec"
+version = "0.4.0"
+description = "Transformer-free closed-corpus ask, cite, and refuse correlator (CEC)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Siddarth Boggarapu", email = "siddarthb078@gmail.com" }]
+keywords = ["cec", "question-answering", "abstention", "retrieval", "pytorch", "correlator"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "torch>=2.0",
+  "typer>=0.12",
+  "rich>=13.0",
+  "pyyaml>=6.0",
+  "numpy>=1.24,<2",
+  "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+ingest = ["datasets>=2.18"]
+dev = ["pytest>=7.0", "reportlab>=4.0", "pdfplumber>=0.10"]
+llm-bench = ["transformers>=4.36", "accelerate>=0.27", "sentencepiece>=0.1.99"]
+ui = ["gradio>=4.44"]
+all = ["bumblebee-cec[ingest,dev,ui,llm-bench]"]
+
+[project.scripts]
+bumblebee = "bumblebee.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/Siddarthb07/bumblebee-cec"
+Documentation = "https://github.com/Siddarthb07/bumblebee-cec/blob/main/docs/INDEX.md"
+Issues = "https://github.com/Siddarthb07/bumblebee-cec/issues"
+Changelog = "https://github.com/Siddarthb07/bumblebee-cec/blob/main/CHANGELOG.md"
+Source = "https://github.com/Siddarthb07/bumblebee-cec"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

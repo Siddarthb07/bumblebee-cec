@@ -1,0 +1,9 @@
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#ebe4f5','primaryTextColor':'#1a1a1a','lineColor':'#333','background':'#ffffff'}}}%%
+flowchart LR
+  Dolly[Dolly contexts] --> Train[CEC training]
+  Chat[Chat seed] --> Train
+  Math[Math skills] --> Train
+  Code[Code skills] --> Train
+  Know[Knowledge skills] --> Train
+  OOD[OOD eval questions] --> Refuse[Refuse evaluation]
+  Train --> Model[cec.pt]

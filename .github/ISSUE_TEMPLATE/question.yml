@@ -1,0 +1,13 @@
+name: Question
+description: Setup, results, or what a number means.
+title: ""
+labels:
+  - question
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Quality numbers live in docs/RESULTS.md. docs/SYSTEMS_BENCH.md is quarantined.
+    validations:
+      required: true

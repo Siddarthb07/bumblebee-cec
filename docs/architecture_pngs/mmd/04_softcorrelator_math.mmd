@@ -1,0 +1,10 @@
+flowchart TD
+  q[q_in_R_d] --> Wq[W_q_q]
+  P[P_in_R_T_x_d] --> Wk[W_k_P_t]
+  Wq --> Dot["logits_t = dot / temperature"]
+  Wk --> Dot
+  Mask[passage_mask] --> Dot
+  Dot --> Sp["m = sparsemax(logits)"]
+  Sp --> Norm["renormalize_m_on_mask"]
+  Norm --> E["e = sum_t m_t P_t"]
+  Norm --> H["concentration = 1 - H(m)/log T"]

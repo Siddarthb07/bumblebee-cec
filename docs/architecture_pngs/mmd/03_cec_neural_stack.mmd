@@ -1,0 +1,59 @@
+flowchart LR
+  subgraph inputs [Inputs]
+    Qids[question_token_ids]
+    Pids[passage_token_ids]
+    Aids[answer_token_ids_train_only]
+  end
+
+  subgraph enc [LocalStateEncoder]
+    Emb[Embedding]
+    GRU[GRUCell_step_loop]
+    LN[LayerNorm]
+    Emb --> GRU --> LN
+  end
+
+  Qids --> enc
+  Pids --> enc
+  enc --> Qfinal[query_final_state_q]
+  enc --> Pstates[passage_cell_states_P]
+
+  subgraph soft [SoftCorrelator]
+    Wq[W_q_linear]
+    Wk[W_k_linear]
+    Aff[affinity_logits]
+    SpX[sparsemax_mass_m]
+    Ev[evidence_e_equals_sum_m_t_P_t]
+    Wq --> Aff
+    Wk --> Aff
+    Aff --> SpX --> Ev
+  end
+
+  Qfinal --> soft
+  Pstates --> soft
+
+  subgraph gate [CoverageGate]
+    MLP[MLP_on_concat_q_e]
+    Conc[mass_concentration_1_minus_H_m_over_logT]
+    Conf[confidence_sigma_times_concentration]
+    MLP --> Conf
+    Conc --> Conf
+  end
+
+  Qfinal --> gate
+  Ev --> gate
+  SpX --> gate
+
+  subgraph dec [Decoders]
+    Ext[ExtractiveDecoder_start_span_citation]
+    Gen[GenerativeAnswerDecoder_GRU_conditioned_on_q_e]
+  end
+
+  Pstates --> Ext
+  SpX --> Ext
+  Qfinal --> Gen
+  Ev --> Gen
+  Aids -.->|teacher_force| Gen
+
+  Conf --> Out[Forward_outputs]
+  Ext --> Out
+  Gen --> Out

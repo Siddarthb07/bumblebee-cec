@@ -1,0 +1,19 @@
+name: Bug
+description: Something in the CLI, dash, train, or eval path broke.
+title: ""
+labels:
+  - bug
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Command, Python version, and the error. A missing checkpoint is expected until you train; say if the hint was missing.
+    validations:
+      required: true
+  - type: textarea
+    id: expect
+    attributes:
+      label: What you expected
+    validations:
+      required: true

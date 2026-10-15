@@ -1,0 +1,11 @@
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#ebe4f5','primaryTextColor':'#1a1a1a','lineColor':'#333','background':'#ffffff'}}}%%
+flowchart TB
+  CLI[cli.py] --> Router[router.py]
+  Dash[dash / chat] --> Router
+  Router --> Ask[train.ask_question]
+  Ask --> Model[model.py CEC]
+  Ask --> Gate[gate.py]
+  CLI --> Train[train.py]
+  Train --> Model
+  HF[hf_ingest.py] --> Data[data JSONL]
+  Data --> Train

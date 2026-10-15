@@ -1,0 +1,20 @@
+flowchart TD
+  HF[HF_Dolly_plus_skill_seed] --> Ingest[hf_ingest]
+  Ingest --> Passages[data/corpus/passages.jsonl]
+  Ingest --> Evals[data/evals/questions.jsonl]
+  Passages --> Vocab[Vocab.build]
+  Evals --> Vocab
+  Vocab --> DS[QADataset]
+  Passages --> DS
+  Evals --> DS
+  DS --> Batch[collate_q_p_a]
+
+  Batch --> CEC[CECModel.forward]
+  CEC --> L1[gate_BCE_vs_answerable]
+  CEC --> L2[start_CE_extractive_aux]
+  CEC --> L3[gen_CE_answer_LM]
+  L1 --> Loss["loss = L1 + L2 + 1.5*L3"]
+  L2 --> Loss
+  L3 --> Loss
+  Loss --> Adam[Adam_step]
+  Adam --> Ckpt[artifacts/cec.pt_plus_vocab_config]

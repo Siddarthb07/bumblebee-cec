@@ -1,0 +1,19 @@
+flowchart TB
+  subgraph product [Bumblebee_product]
+    User[User_question]
+    CLI[CLI_chat_dash_ask]
+    Router[router.ask_hybrid]
+    CEC[CEC_core_transformer_free]
+    Pack[Frozen_corpus_skill_pack]
+    Gate[Coverage_and_faithfulness]
+    OutAns[Answer_plus_citation]
+    OutRef[Refuse_OUTSIDE_DATASET]
+  end
+
+  User --> CLI --> Router
+  Router -->|live_or_unsafe| OutRef
+  Router -->|auto_or_corpus| CEC
+  Pack --> CEC
+  CEC --> Gate
+  Gate -->|conf_ok_and_faithful| OutAns
+  Gate -->|low_coverage_or_unfaithful| OutRef

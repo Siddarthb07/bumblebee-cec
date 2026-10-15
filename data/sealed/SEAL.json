@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "holdout_salt": "bumblebee-holdout-v1",
+  "n_passages": 11568,
+  "n_evals": 10693,
+  "n_train": 8500,
+  "n_test": 2193,
+  "n_cal": 2114,
+  "passages_sha256": "7395f3a8b750b5dc968c322f80c3842fa704248474916619745c1149b832f1a3",
+  "evals_sha256": "dfd0b78f0c3ea3c0fe4ee80a0b940e7fbb216ee77561fa7a1e03e2c25bf16128",
+  "passage_ids_sha256": "7112a9e0312a85864e2584a855c5d34568c32ac9057fc247ba82ca0cd5b43e92",
+  "eval_ids_sha256": "44cca0746934edb224ba3de542871c22c7ec03c39715c99ef21992bd3dc802dd",
+  "test_ids_sha256": "69a6b73aaf75ab925f4d2074ba9efa2cf9502b6f2c0314e9414ee761ca455f2f",
+  "cal_ids_sha256": "14693d874676da739df6fa01884b2b6ccae76e5420bdde88fe4266f6af359295",
+  "holdout_ids_sha256": "69a6b73aaf75ab925f4d2074ba9efa2cf9502b6f2c0314e9414ee761ca455f2f",
+  "note": "Reproducibility seal \u2014 not external validity. Checksums detect drift; they do not prove no leakage by themselves.",
+  "seal_sha256": "525f9d6695c61ed6f299463e5900a43593eb5fe5f85b5277c7ad54d9b3ca9a65"
+}
