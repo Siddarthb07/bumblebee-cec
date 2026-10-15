@@ -38,4 +38,4 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --title "${GITHUB_REF_NAME}" \
-            --notes "See CHANGELOG.md. Install from source: pip install git+https://github.com/Siddarthb07/bumblebee-cec.git"
+            --notes "See CHANGELOG.md. Clone the repository to use the sealed pack. The wheel is the Python package only and does not include data/."
