@@ -27,7 +27,7 @@ dependencies = [
   "typer>=0.12",
   "rich>=13.0",
   "pyyaml>=6.0",
-  "numpy>=1.24,<2",
+  "numpy>=1.24,<3",
   "psutil>=5.9",
 ]
 
