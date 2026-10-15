@@ -3,7 +3,7 @@
 > **Do not cite these numbers.** This file is stale orphan output from a deleted
 > TinyStories / systems-bench path (`bench --mode systems` removed). Perfect
 > F1=1.000 / OOD=1.000 on n=40 is not reproducible with current code and
-> contradicts `docs/RESULTS.md` (CEC in-domain F1 0.122, BM25 0.136, on the sealed pack).
+> contradicts `docs/RESULTS.md` (CEC in-domain F1 0.131, BM25 0.133, on the sealed pack).
 
 Regenerate nothing here until a new systems opponent and protocol exist.
 See `docs/INSANE_ROADMAP.md` (P4 scrap this cycle).

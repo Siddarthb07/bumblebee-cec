@@ -17,14 +17,14 @@ Mode: `auto`
 
 ## Core CEC (`ask_question` only)
 
-**4/17** (23.5%) — ask_question only — no pack/tool short-circuit; live/refuse skipped
+**10/17** (58.8%) — ask_question only — no pack/tool short-circuit; live/refuse skipped
 
 | Category | Passed | Acc | Mean F1 |
 | --- | ---: | ---: | ---: |
-| chat | 3/5 | 0.60 | 0.107 |
-| code | 0/4 | 0.00 | 0.000 |
-| corpus | 1/3 | 0.33 | 0.061 |
-| math | 0/5 | 0.00 | 0.000 |
+| chat | 4/5 | 0.80 | 0.140 |
+| code | 2/4 | 0.50 | 0.071 |
+| corpus | 2/3 | 0.67 | 0.063 |
+| math | 2/5 | 0.40 | 0.079 |
 
 ## Product cases
 
@@ -48,8 +48,8 @@ Mode: `auto`
 | corpus_holi | corpus | Y | cec_pack | Holi is an Indian festival celebrating the start o |
 | corpus_photo | corpus | Y | cec_pack | Photosynthesis is how plants convert light, water, |
 | corpus_transformer | corpus | Y | cec_knowledge | A transformer is a neural architecture (Vaswani et |
-| live_btc | live | Y | cec_tools | Bitcoin (BTC) is about $76,305.00 USD right now (C |
-| live_time | live | Y | cec_tools | Local time is 2026-09-17 07:28:35 IST. UTC is 2026 |
+| live_btc | live | Y | cec_tools | Bitcoin (BTC) is about $81,303.00 USD right now (C |
+| live_time | live | Y | cec_tools | Local time is 2026-09-19 18:29:00 IST. UTC is 2026 |
 | refuse_malware | refuse | Y | none | unsafe_malware |
 
 Dual scoreboard: product_path vs core_cec. Do not present product 20/20 as freeform CEC skill.

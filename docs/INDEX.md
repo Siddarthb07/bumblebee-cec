@@ -5,9 +5,10 @@ If a sentence disagrees with those two files, the sentence is stale.
 
 | Doc | Standing |
 | --- | --- |
-| [RESULTS.md](RESULTS.md) | Current same-protocol scoreboard. BM25 leads in-domain F1 (0.136 vs 0.122). |
-| [SKILLS_BENCH.md](SKILLS_BENCH.md) | Current dual scoreboard. Product path 20/20. Core CEC 4/17. |
-| [MEMORY_BENCH.md](MEMORY_BENCH.md) | Footprint only. Not answer quality. |
+| [RESULTS.md](RESULTS.md) | Current same-protocol scoreboard. BM25 leads in-domain F1 (0.133 vs 0.131, n=2079 vs n=497). |
+| [SKILLS_BENCH.md](SKILLS_BENCH.md) | Current dual scoreboard. Product path 20/20. Core CEC 10/17. |
+| [MEMORY_BENCH.md](MEMORY_BENCH.md) | Footprint only. 127.1M params, dim=640, peak RSS 0.717 GB. Not answer quality. |
+| [HEARTH_BENCH.md](HEARTH_BENCH.md) | Decoder word table. Same 127,106,806 params. |
 | [LLM_COMPARE.md](LLM_COMPARE.md) | One CPU run against gpt2-medium. Skills wins are mostly packs and tools. Held-out quality is not a CEC win. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Current product shape. No open-LM sidecar. 30B is a hypothesis. |
 | [ARCHITECTURE_FLOWCHART.md](ARCHITECTURE_FLOWCHART.md) | Current flow. `mode=open` refuses. |

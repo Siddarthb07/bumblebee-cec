@@ -684,8 +684,9 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const fmtP=n=>!n?'—':n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n;
 const fmt=(n,d=3)=>n==null||Number.isNaN(+n)?'—':(+n).toFixed(d);
 const grp=n=>n==null?'—':(+n).toLocaleString('en-US');
-const dimOf=()=>+(LIVE.train?.dim||CFG.live_dim||CFG.dim||F.query_units?.length||128);
-const paramsOf=()=>+(LIVE.train?.n_params||CFG.live_n_params||CFG.n_params||0);
+const trainActive=()=>!!(LIVE.train_live&&LIVE.train&&LIVE.train.status==='running');
+const dimOf=()=>+(trainActive()&&LIVE.train?.dim?LIVE.train.dim:(CFG.live_dim||CFG.dim||F.query_units?.length||128));
+const paramsOf=()=>+(trainActive()&&LIVE.train?.n_params?LIVE.train.n_params:(CFG.live_n_params||CFG.n_params||0));
 const dur=s=>{ if(s==null||!isFinite(s)||s<0) return '—'; const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=Math.floor(s%60);
   return h?h+'h '+String(m).padStart(2,'0')+'m':m?m+'m '+String(x).padStart(2,'0')+'s':x+'s'; };
 const hhmmss=ts=>{ const d=ts?new Date(ts*1000):new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0'); };
@@ -739,8 +740,11 @@ function applyConfig(c){
   if(!c||c.error) return;
   const t=LIVE.train||{};
   CFG=Object.assign({},c);
-  if(t.dim) CFG.dim=t.dim;
-  if(t.n_params) CFG.n_params=t.n_params;
+  // Only a live trainer may override product checkpoint dim/params
+  if(trainActive()){
+    if(t.dim) CFG.dim=t.dim;
+    if(t.n_params) CFG.n_params=t.n_params;
+  }
   renderFoot();
   layout=null;
 }
@@ -772,12 +776,14 @@ async function tick(){
   const t=LIVE.train||{}, f=LIVE.forward||{};
   if(f&&Object.keys(f).length) F=f;
   const bc=LIVE.config||{};
-  if(bc.dim&&CFG.dim==null) CFG.dim=bc.dim;
-  if(bc.n_params&&CFG.n_params==null) CFG.n_params=bc.n_params;
-  if(bc.arch&&CFG.arch==null) CFG.arch=bc.arch;
-  if(t.dim) CFG.dim=t.dim;
-  if(t.n_params) CFG.n_params=t.n_params;
-  const hist=LIVE.history||[];
+  if(bc.dim) CFG.dim=bc.dim;
+  if(bc.n_params) CFG.n_params=bc.n_params;
+  if(bc.arch) CFG.arch=bc.arch;
+  if(trainActive()){
+    if(t.dim) CFG.dim=t.dim;
+    if(t.n_params) CFG.n_params=t.n_params;
+  }
+  const hist=trainActive()?(LIVE.history||[]):[];
 
   const q=(t.sample_question||F.question||'').trim();
   const ph=String(F.phase||'');
@@ -808,9 +814,8 @@ function header(t,f){
   } else if(LIVE.forward_live){
     p.classList.add('on'); lab.textContent='LIVE FORWARD';
     sub.textContent=(f.decision||'—')+' · conf '+fmt(f.confidence,2);
-  } else if(t.status==='finished'){ lab.textContent='TRAIN FINISHED'; sub.textContent='step '+(t.step??'—'); }
-  else { lab.textContent='IDLE'; sub.textContent='waiting for telemetry'; }
-  headerSpark(LIVE.history||[]);
+  } else { lab.textContent='IDLE'; sub.textContent='product ckpt · D='+dimOf(); }
+  headerSpark(trainActive()?(LIVE.history||[]):[]);
 }
 function headerSpark(hist){
   const c=$('hdrSpark'); if(!c) return;
@@ -859,7 +864,7 @@ function metrics(t,f,hist){
   const losses=hist.map(h=>h.loss).filter(v=>v!=null);
   const lo=losses.length?Math.min(...losses):null;
   const prev=losses.length>1?losses[losses.length-2]:null;
-  const cur=t.loss!=null?+t.loss:(losses.length?losses[losses.length-1]:null);
+  const cur=trainActive()&&t.loss!=null?+t.loss:(losses.length?losses[losses.length-1]:null);
   let dsub='',dcls='';
   if(cur!=null&&prev!=null){ const d=cur-prev; dcls=d>0?'up':'dn'; dsub=(d>=0?'▲ ':'▼ ')+Math.abs(d).toFixed(4)+' · min '+fmt(lo,4); }
   else if(lo!=null) dsub='min '+fmt(lo,4);
@@ -1505,8 +1510,35 @@ class _ArchHandler(BaseHTTPRequestHandler):
             return
         # /api/live is hot path — never torch.load here
         if path == "/api/live":
+            # Prefer on-disk config/ckpt dims; never let a finished micro-train
+            # snapshot override product n_params in the live payload.
             cfg = _load_config(self.root, probe_ckpt=False)
             bundle = read_live_bundle(self.root)
+            train = bundle.get("train") or {}
+            if not (bundle.get("train_live") and train.get("status") == "running"):
+                # Strip stale finished-train dims/losses so the UI shows product ckpt
+                train = {
+                    k: v
+                    for k, v in train.items()
+                    if k
+                    not in {
+                        "loss",
+                        "gate_loss",
+                        "span_loss",
+                        "grad_norm",
+                        "lr",
+                        "step",
+                        "epoch",
+                        "epochs",
+                        "sample_question",
+                    }
+                }
+                train["status"] = "idle"
+                train["dim"] = cfg.get("dim")
+                train["n_params"] = cfg.get("n_params")
+                train["arch"] = cfg.get("arch")
+                bundle["train"] = train
+                bundle["history"] = []
             if not bundle.get("forward"):
                 bundle["forward"] = _idle_forward(cfg)
             if "events" not in bundle:

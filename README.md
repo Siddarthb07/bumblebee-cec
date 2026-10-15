@@ -4,7 +4,7 @@ Bumblebee is a **closed-corpus correlator**. You ask a question. It answers from
 
 It is not a frontier next-token language model. There is no Hugging Face transformer in the answer path. Chat, math, and short code replies that feel polished come from a skill pack and a few live tools, then CEC if those miss.
 
-**Standing result** on the sealed pack, same retrieval protocol, no gold passage handed to the model: BM25 in-domain F1 **0.136**, CEC **0.122** (n ≈ 2070). Say that. The full card is [docs/RESULTS.md](docs/RESULTS.md).
+**Standing result** on the dim=640 run (127,106,806 params), same retrieval protocol, no gold passage handed to the model: BM25 in-domain F1 **0.133** (n=2079), CEC **0.131** (n=497). BM25 still leads F1. CEC OOD refuse recall is **0.849**, BM25 **0.075**. The full card is [docs/RESULTS.md](docs/RESULTS.md). This clone does not ship `artifacts/cec.pt`. That checkpoint is in the research history via Git LFS.
 
 ## Install
 
@@ -49,13 +49,14 @@ Training the sealed pack (11568 passages) on a laptop takes a while. `ingest` on
 
 | Claim | Where it stands |
 | --- | --- |
-| In-domain F1, retrieved, no gold passage | BM25 0.136, CEC 0.122. [docs/RESULTS.md](docs/RESULTS.md) |
+| In-domain F1, retrieved, no gold passage | BM25 0.133 (n=2079), CEC 0.131 (n=497). BM25 still leads. [docs/RESULTS.md](docs/RESULTS.md) |
 | Product skills | 20/20. That is packs and tools. |
-| Core CEC on the same skill questions | 4/17. [docs/SKILLS_BENCH.md](docs/SKILLS_BENCH.md) |
-| Memory | ~24.3M params, peak RSS ~0.40 GB, mean ask ~3.5 s. Footprint only. [docs/MEMORY_BENCH.md](docs/MEMORY_BENCH.md) |
+| Core CEC on the same skill questions | 10/17. [docs/SKILLS_BENCH.md](docs/SKILLS_BENCH.md) |
+| Memory | 127.1M params, dim=640, peak RSS 0.717 GB, mean ask 8.6 s. Footprint only. [docs/MEMORY_BENCH.md](docs/MEMORY_BENCH.md) |
+| Decoder word table | Hearth. Int8 table plus a certified residual. Same parameter count. [docs/HEARTH_BENCH.md](docs/HEARTH_BENCH.md) |
 | Versus gpt2-medium | Skills wins are mostly packs and tools. Held-out quality is not a CEC win. [docs/LLM_COMPARE.md](docs/LLM_COMPARE.md) |
-| Calibration | Answered-subset ECE is about 0.915. The gate is not calibrated. |
-| OOD refuse on entity-gap / far-ood holdouts | Precision 1.0 on small N, recall about 0.10. It rarely refuses, and when it does the refuse is on-target. |
+| Calibration | Answered-subset ECE is about 0.942. The gate is not calibrated. |
+| OOD refuse on entity-gap / far-ood holdouts | Precision 1.0 on small N. Recall 0.767 entity-gap, 0.957 far-ood. |
 | `docs/SYSTEMS_BENCH.md` | Quarantined. Do not cite. |
 | Patent | Nothing filed. [docs/PATENT_LETTER.md](docs/PATENT_LETTER.md) |
 | Scale to 30B | Architectural hypothesis. Not a measured run. |
@@ -73,6 +74,7 @@ Sources, download only, no transformer weights: Dolly, WikiText-2, Cosmopedia-v2
 | `dash` | Local web UI on port 7860. |
 | `arch-dash` | Architecture monitor on port 7861. |
 | `train` / `calibrate` / `eval` | Fit CEC, temperature, held-out eval. |
+| `hearth-bench` | Check the decoder word table against the dense argmax. |
 | `bench --mode all` | Rewrites the scoreboard docs from artifacts. |
 | `ingest` | Hash the corpus that is already on disk. |
 | `ingest-assets` | Rebuild the multi-corpus pack. Needs `pip install -e ".[ingest]"` and a datasets download. |

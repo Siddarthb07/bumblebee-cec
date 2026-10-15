@@ -71,20 +71,23 @@ def run_chat(root: Path, mode: str = "auto") -> None:
         src = result.get("source", "?")
         if result["status"] == "answer":
             history.append((q, result["answer"], result.get("passage_id") or ""))
+            unverified = " · unverified" if result.get("unverified") else ""
+            label = result.get("source_label") or src
             body = (
-                f"**ANSWER** · source=`{src}` · `{mode_label}` · `{model_label}` "
+                f"**ANSWER** · source=`{label}` · `{mode_label}` · `{model_label}` "
                 f"(conf={result['confidence']:.3f}"
-                f"{', multihop' if result.get('multihop') else ''})\n\n"
+                f"{', multihop' if result.get('multihop') else ''}{unverified})\n\n"
                 f"{result['answer']}"
             )
-            if result.get("citation_span"):
+            if result.get("hint") and result.get("unverified"):
+                body += f"\n\n*{result['hint']}*"
+            if result.get("citation_span") and src not in {"web_unverified", "knowledge", "pack"}:
                 body += (
-                    f"\n\n*citation [{result.get('passage_id')}] "
-                    f"tok {result.get('citation_start')}-{result.get('citation_end')}:* "
+                    f"\n\n*citation [{result.get('passage_id')}]:* "
                     f"{result['citation_span']}"
                 )
             web = result.get("web")
-            if isinstance(web, dict) and web.get("answer"):
+            if isinstance(web, dict) and web.get("answer") and src != "web_unverified":
                 body += (
                     f"\n\n---\n**WEB (unverified)** conf={web.get('confidence', 0):.2f} "
                     f"overlap={web.get('overlap', '?')} · `{web.get('reason', '')}`\n\n"
@@ -95,7 +98,8 @@ def run_chat(root: Path, mode: str = "auto") -> None:
             body = (
                 f"**REFUSE** · source=`{src}` · `{mode_label}` "
                 f"(conf={result['confidence']:.3f})\n\n"
-                f"reason: `{result['reason']}`"
+                f"{result.get('hint') or 'I could not ground an answer in my pack.'}\n\n"
+                f"reason: `{result.get('reason')}`"
             )
             web = result.get("web")
             if isinstance(web, dict) and web.get("answer"):

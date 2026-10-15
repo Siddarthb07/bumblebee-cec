@@ -1,6 +1,6 @@
 # Model advice synthesis
 
-> **Historical advisory.** Quotes below still say F1 ~0.19 and ECE ~0.8. Those figures are from before the sealed pack in [RESULTS.md](RESULTS.md) (CEC F1 0.122, BM25 0.136, answered-subset ECE 0.915). Do not cite the quote as the current card.
+> **Historical advisory.** Quotes below still say F1 ~0.19 and ECE ~0.8. Those figures are from before the sealed pack in [RESULTS.md](RESULTS.md) (CEC F1 0.131 on n=497, BM25 0.133 on n=2079, answered-subset ECE 0.942). Do not cite the quote as the current card.
 
 Queried three models (Claude, GPT, Grok) on how to improve Bumblebee given benches at that time.
 Full per-model writeups: sections below were saved from the advisory runs; see also this file’s history in chat.

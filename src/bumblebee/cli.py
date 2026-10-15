@@ -123,6 +123,15 @@ def train(
     threshold: float = 0.35,
     max_passage_len: int = 192,
     max_question_len: int = 64,
+    encoder_kind: str = typer.Option("gru", help="gru | ssm (SelectiveStateEncoder)"),
+    correlator_kind: str = typer.Option(
+        "classic", help="classic SoftCorrelator | gated_delta"
+    ),
+    distill: bool = typer.Option(
+        False,
+        "--distill",
+        help="Distill frozen classic cec.pt → SSM+gated_delta student (cec_linear.pt)",
+    ),
     mac_fit: bool = typer.Option(
         False,
         "--mac-fit",
@@ -144,6 +153,19 @@ def train(
             epochs=epochs,
             threshold=threshold,
         )
+    elif distill:
+        from bumblebee.train import train_model_distill
+
+        path = train_model_distill(
+            root,
+            epochs=epochs,
+            threshold=threshold,
+            max_p=max_passage_len,
+            max_q=max_question_len,
+            encoder_kind=encoder_kind if encoder_kind != "gru" else "ssm",
+            correlator_kind=correlator_kind if correlator_kind != "classic" else "gated_delta",
+            ckpt_name="cec_linear.pt",
+        )
     else:
         path = train_model(
             root,
@@ -152,6 +174,8 @@ def train(
             threshold=threshold,
             max_p=max_passage_len,
             max_q=max_question_len,
+            encoder_kind=encoder_kind,
+            correlator_kind=correlator_kind,
         )
     rprint(f"[green]Saved checkpoint[/green] {path}")
 
@@ -210,12 +234,18 @@ def ask(
         if result.get("citation_span"):
             rprint(f"[dim]citation[/dim] [{result['passage_id']}] {result['citation_span']}")
     else:
+        reason = result.get("reason") or "low_coverage"
+        hint = result.get("hint") or {
+            "weak_lexical_support": "Nothing in my pack clearly matches that question — try different wording, or ask about something in the corpus.",
+            "low_coverage": "I couldn't ground a confident answer in my pack.",
+            "outside_knowledge_pack": "That's outside my frozen knowledge pack.",
+            "banned": "I won't help with that.",
+        }.get(reason, "I couldn't ground this in my pack.")
         rprint(
             f"[yellow]REFUSE[/yellow] source={result.get('source', 'refuse')} "
-            f"mode={mode_l} reason={result['reason']} conf={result['confidence']:.3f}"
+            f"mode={mode_l} reason={reason} conf={result['confidence']:.3f}"
         )
-        if result.get("hint"):
-            rprint(result["hint"])
+        rprint(f"[dim]{hint}[/dim]")
 
 @app.command()
 def calibrate():
@@ -227,6 +257,18 @@ def calibrate():
     report = fit_gate_temperature(root_dir())
     rprint(report)
     rprint("[green]Wrote[/green] artifacts/calibration.json (+ config.json temperature)")
+
+
+@app.command("miss-report")
+def miss_report_cmd():
+    """Summarize product misses for targeted pack growth (no transformers)."""
+    from bumblebee.miss_log import miss_focus_report, suggest_pack_growth
+
+    root = root_dir()
+    report = miss_focus_report(root)
+    path = suggest_pack_growth(root)
+    rprint(report)
+    rprint(f"[green]Wrote[/green] {path}")
 
 
 @app.command(name="eval")
@@ -253,25 +295,31 @@ def eval_cmd():
 def bench(
     mode: str = typer.Option(
         "retrieval",
-        help="retrieval | all | skills | llm-compare | adversarial | ablation | memory",
+        help="retrieval | all | skills | usability | sealed | dolly-strict | adversarial | ablation | linear-ablation | param-sweep | rundown | memory",
     ),
     llm_model: str = typer.Option(
         "gpt2-medium",
-        help="Peer LLM for llm-compare: gpt2-medium | smollm-360m | pythia-410m | gpt2 | or HF id",
+        help="(unused unless llm-compare) peer id — llm-compare is optional and requires transformers",
     ),
     max_in_domain: int = typer.Option(20, help="Held-out in-domain sample size for llm-compare"),
     max_ood: int = typer.Option(20, help="Held-out OOD sample size for llm-compare"),
-    ablation_epochs: int = typer.Option(2, help="Epochs per mass_fn for ablation mode"),
+    ablation_epochs: int = typer.Option(2, help="Epochs per arm for ablation / linear-ablation"),
     memory_asks: int = typer.Option(8, help="Ask count for memory peak-RSS probe"),
+    usability_corpus_n: int = typer.Option(
+        12, help="Held-out corpus sample size for usability mode"
+    ),
 ):
     """
     Benchmark on the same held-out eval splits.
     retrieval: BM25+abstain and embedding+abstain (shared refuse family)
     all: retrieval + fold in CEC eval_report
     skills: chat/math/code/corpus/live/refuse suite scoring CEC itself
+    usability: real natural questions (product path) + held-out sample
     llm-compare: CEC vs a real dense transformer LLM peer (optional transformers install)
     adversarial: paraphrase / distractor / conflict suite
     ablation: SoftCorrelator sparsemax vs softmax vs topk (short train)
+    linear-ablation: classic vs SSM+gated_delta scratch vs distill (short train)
+    param-sweep: in-depth Linear CEC one-factor parameter probes + micro train
     memory: CEC disk/RSS/params vs modern LLM weight catalogs
     """
     root = root_dir()
@@ -307,6 +355,61 @@ def bench(
             }
         )
         rprint("[green]Wrote[/green] artifacts/bench_skills.json and docs/SKILLS_BENCH.md")
+    elif mode == "usability":
+        from bumblebee.usability_bench import run_usability_bench, write_usability_docs
+
+        report = run_usability_bench(
+            root, include_corpus_sample=True, corpus_n=usability_corpus_n
+        )
+        out = root / "artifacts" / "bench_usability.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        doc = write_usability_docs(root, report)
+        rprint(
+            {
+                "passed": report["passed"],
+                "n": report["n"],
+                "accuracy": report["accuracy"],
+                "by_category": report["by_category"],
+                "failures": [
+                    {"id": f["id"], "why": f["why"], "q": f["question"][:60]}
+                    for f in report.get("failures") or []
+                ],
+            }
+        )
+        rprint(f"[green]Wrote[/green] {out} and {doc}")
+    elif mode == "sealed":
+        from bumblebee.sealed_bench import freeze_usability_v1, run_frozen_usability
+
+        freeze_usability_v1(root)
+        report = run_frozen_usability(root)
+        rprint(
+            {
+                "passed": report["passed"],
+                "n": report["n"],
+                "accuracy": report["accuracy"],
+                "failures": [
+                    {"id": f["id"], "why": f["why"]} for f in report.get("failures") or []
+                ],
+                "transformers": False,
+            }
+        )
+        rprint("[green]Wrote[/green] data/sealed/usability_v1.jsonl + artifacts/bench_usability_v1_frozen.json")
+    elif mode == "dolly-strict":
+        from bumblebee.sealed_bench import build_dolly_strict_slice, run_dolly_strict
+
+        build_dolly_strict_slice(root, n=40)
+        report = run_dolly_strict(root, n=40)
+        rprint(
+            {
+                "passed": report["passed"],
+                "n": report["n"],
+                "accuracy": report["accuracy"],
+                "mean_f1_answered": report["mean_f1_answered"],
+                "transformers": False,
+            }
+        )
+        rprint("[green]Wrote[/green] artifacts/bench_dolly_strict.json and docs/DOLLY_STRICT_BENCH.md")
     elif mode == "adversarial":
         from bumblebee.adversarial import run_adversarial_bench, write_adversarial_file
         from bumblebee.gate import AskResult
@@ -336,6 +439,44 @@ def bench(
         report = run_mass_ablation(root, epochs=ablation_epochs)
         rprint(report)
         rprint("[green]Wrote[/green] artifacts/ablation_mass.json and docs/ABLATION_MASS.md")
+    elif mode in {"linear-ablation", "linear_ablation", "ablation-linear"}:
+        from bumblebee.ablation import run_linear_ablation
+
+        report = run_linear_ablation(root, epochs=ablation_epochs)
+        rprint(report)
+        rprint("[green]Wrote[/green] artifacts/ablation_linear.json and docs/ABLATION_LINEAR.md")
+    elif mode in {"param-sweep", "param_sweep", "params"}:
+        from bumblebee.param_sweep import run_param_depth_sweep
+
+        report = run_param_depth_sweep(root, epochs=max(1, ablation_epochs // 2 or 1))
+        beh = report.get("behavioral") or {}
+        rprint(
+            {
+                "behavioral_all_pass": beh.get("all_pass"),
+                "winners_by_f1": report.get("winners_by_f1"),
+                "axes": list((report.get("axes") or {}).keys()),
+            }
+        )
+        rprint("[green]Wrote[/green] artifacts/param_sweep_linear.json and docs/PARAM_SWEEP_LINEAR.md")
+    elif mode in {"rundown", "full-rundown", "multi-compare"}:
+        from bumblebee.rundown_bench import run_full_rundown
+
+        report = run_full_rundown(
+            root,
+            max_in_domain=min(max_in_domain, 8),
+            max_ood=min(max_ood, 8),
+            peers=("gpt2", "gpt2-medium", "smollm-360m"),
+        )
+        v = report.get("verdict") or {}
+        rprint(
+            {
+                "strong": len(v.get("where_strong") or []),
+                "weak": len(v.get("where_weak") or []),
+                "peers": list(((report.get("peer_quality") or {}).get("peers") or {}).keys()),
+            }
+        )
+        rprint("[green]Wrote[/green] artifacts/bench_full_rundown.json and docs/FULL_RUNDOWN.md")
+        rprint("[dim]PDF: python scripts/build_full_rundown_pdf.py[/dim]")
     elif mode == "memory":
         from bumblebee.memory_bench import run_memory_bench
 
@@ -351,32 +492,16 @@ def bench(
         )
         rprint("[green]Wrote[/green] artifacts/bench_memory.json and docs/MEMORY_BENCH.md")
     elif mode == "llm-compare":
-        try:
-            import transformers  # noqa: F401
-            from bumblebee.llm_compare import run_llm_compare
-        except ImportError as exc:
-            rprint(
-                "[red]llm-compare needs transformers.[/red] "
-                "Install: pip install 'bumblebee[llm-bench]' or pip install transformers accelerate"
-            )
-            raise typer.Exit(code=1) from exc
-        report = run_llm_compare(
-            root,
-            model=llm_model,
-            max_in_domain=max_in_domain,
-            max_ood=max_ood,
-        )
         rprint(
-            {
-                "llm_peer": report["llm_peer"],
-                "skills": report["skills"],
-                "heldout_sample": report["heldout_sample"],
-            }
+            "[yellow]llm-compare uses transformers and is optional.[/yellow] "
+            "Council plan: skip transformers. Use: sealed | dolly-strict | usability | skills."
         )
-        rprint("[green]Wrote[/green] artifacts/bench_llm_compare.json and docs/LLM_COMPARE.md")
+        raise typer.Exit(code=2)
     else:
         raise typer.BadParameter(
-            "mode must be retrieval, all, skills, adversarial, ablation, memory, or llm-compare"
+            "mode must be retrieval, all, skills, usability, sealed, dolly-strict, "
+            "adversarial, ablation, linear-ablation, param-sweep, rundown, or memory "
+            "(llm-compare folded into rundown)"
         )
 
 
@@ -512,6 +637,28 @@ def _bench_retrieval(root: Path) -> dict:
         report[name]["n"] = len(test_evals)
         report[name]["protocol"] = "held_out; threshold+faithfulness+lexical_ood; no gold"
     return report
+
+
+@app.command("hearth-bench")
+def hearth_bench(
+    out: Optional[str] = typer.Option(None, help="Directory for hearth_bench.json"),
+    models: str = typer.Option(
+        "gpt2",
+        help="Comma-separated Hugging Face ids, for example gpt2,distilgpt2",
+    ),
+):
+    """Benchmark Hearth against a dense decoder and one or more causal LMs."""
+    from bumblebee.hearth import format_report, run_benchmark
+
+    dest = Path(out) if out else root_dir() / "artifacts" / "hearth"
+    model_ids = [part.strip() for part in models.split(",") if part.strip()]
+    report = run_benchmark(dest, models=model_ids)
+    text = format_report(report)
+    docs = root_dir() / "docs" / "HEARTH_BENCH.md"
+    docs.write_text(text)
+    rprint(text)
+    rprint(f"[green]Wrote[/green] {dest / 'hearth_bench.json'}")
+    rprint(f"[green]Wrote[/green] {docs}")
 
 
 if __name__ == "__main__":

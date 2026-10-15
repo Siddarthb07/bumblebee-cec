@@ -145,8 +145,35 @@ _SOFT_PATTERNS: List[Tuple[Pattern[str], Tuple[str, str]]] = [
         _WHO_ANSWER,
     ),
     (
+        re.compile(
+            r"\b(what\s+can\s+you\s+do|what\s+are\s+you\s+good\s+at|help\s+me\s+get\s+started)\b",
+            re.I,
+        ),
+        PACK_ANSWERS["what can you do"],
+    ),
+    (
+        re.compile(r"\b(how\s+are\s+you|how'?s\s+it\s+going|how\s+is\s+your\s+day)\b", re.I),
+        PACK_ANSWERS["how are you"],
+    ),
+    (
+        re.compile(r"\b(thanks|thank\s+you|thx)\b", re.I),
+        PACK_ANSWERS["thanks"],
+    ),
+    (
+        re.compile(r"\b(good\s+morning|good\s+afternoon|good\s+evening)\b", re.I),
+        (
+            "Hello — I'm Bumblebee. Ask a pack question, try a live tool (time / BTC / weather), "
+            "or just say hi.",
+            "chat",
+        ),
+    ),
+    (
         re.compile(r"^(hi|hello|hey)([\s!,.]+|$)", re.I),
         PACK_ANSWERS["hi"],
+    ),
+    (
+        re.compile(r"\b(can\s+we\s+(just\s+)?chat|let'?s\s+chat|talk\s+to\s+me)\b", re.I),
+        PACK_ANSWERS["can we just chat for a bit"],
     ),
 ]
 

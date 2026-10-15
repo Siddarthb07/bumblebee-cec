@@ -1,6 +1,6 @@
 # Model advice (raw)
 
-> **Historical advisory.** The figures below (F1 ~0.19, ECE ~0.8, ~2M dense core, train/test OOD overlap) are from an earlier pack. The current scoreboard is [RESULTS.md](RESULTS.md): CEC in-domain F1 0.122, BM25 0.136, answered-subset ECE 0.915, headline params 24.3M at dim=128. The advice about splitting the scoreboard and not equating sparse params with dense FLOPs still stands. The numbers in the quotes do not.
+> **Historical advisory.** The figures below (F1 ~0.19, ECE ~0.8, ~2M dense core, train/test OOD overlap) are from an earlier pack. The current scoreboard is [RESULTS.md](RESULTS.md): CEC in-domain F1 0.131 (n=497), BM25 0.133 (n=2079), answered-subset ECE 0.942, headline params 127.1M at dim=640. The advice about splitting the scoreboard and not equating sparse params with dense FLOPs still stands. The numbers in the quotes do not.
 
 Advisory runs on improving Bumblebee, given benches at the time and Mac-fit LargeCEC constraints.
 Synthesis: [MODEL_ADVICE_SYNTHESIS.md](MODEL_ADVICE_SYNTHESIS.md).

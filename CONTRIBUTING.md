@@ -24,7 +24,7 @@ Python 3.9 or newer. CI runs 3.9, 3.11, and 3.12.
 ## What not to change in a drive-by PR
 
 - Do not cite `docs/SYSTEMS_BENCH.md`. It is quarantined.
-- Do not describe product skills (20/20) as core CEC. Core CEC on that suite is 4/17. See `docs/SKILLS_BENCH.md`.
+- Do not describe product skills (20/20) as core CEC. Core CEC on that suite is 10/17. See `docs/SKILLS_BENCH.md`.
 - Do not call the gate calibrated. Answered-subset ECE on the sealed pack is about 0.915.
 - Do not put patent-pending, "replaces transformers," or a 30B result in the README. Nothing is filed. Scale-to-30B is a hypothesis.
 - Do not reintroduce an open language-model sidecar.

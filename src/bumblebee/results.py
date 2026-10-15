@@ -197,6 +197,8 @@ def _write_results_md(root: Path, report: dict) -> Path:
             "- `artifacts/bench_skills.json` — dual scoreboard",
             "- `artifacts/bench_adversarial.json` — paraphrase / distractor / conflict",
         "- `artifacts/ablation_mass.json` — SoftCorrelator mass_fn ablation",
+        "- `artifacts/ablation_linear.json` — classic vs SSM+gated_delta scratch vs distill",
+        "- `artifacts/cec_linear.pt` — optional distilled linear student (not product default)",
         "- `artifacts/bench_memory.json` — CEC RSS/params vs LLM weight catalogs",
         "- `data/sealed/SEAL.json` — pack checksums",
             "",

@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from bumblebee.model import CoverageGate, ExtractiveDecoder, SoftCorrelator
+from bumblebee.model import CoverageGate, ExtractiveDecoder, build_correlator
 from bumblebee.tokenize import Vocab, tokenize
 
 
@@ -97,6 +97,14 @@ class SmallAnswerLM(nn.Module):
         self.cond = nn.Linear(dim * 2, dim)
         self.rnn = nn.GRUCell(dim, dim)
         self.out = nn.Linear(dim, vocab_size)
+        self.hearth = None
+
+    def enable_hearth(self):
+        """Exact word-table argmax. Short list only when the residual certifies it."""
+        from bumblebee.hearth import HearthHead
+
+        self.hearth = HearthHead.from_linear(self.out)
+        return self.hearth
 
     def teacher_force(self, query_state, evidence, answer_ids):
         b, ta = answer_ids.shape
@@ -118,10 +126,16 @@ class SmallAnswerLM(nn.Module):
         h = torch.tanh(self.cond(torch.cat([query_state, evidence], dim=-1)))
         tok = torch.full((b,), self.pad_id, device=query_state.device, dtype=torch.long)
         outs = []
+        self.hearth_seals = []
         for _ in range(max_len):
             x = self.emb(tok)
             h = self.rnn(x, h)
-            tok = self.out(h).argmax(dim=-1)
+            if self.hearth is not None:
+                tok = self.hearth.argmax(h)
+                if self.hearth.seal is not None:
+                    self.hearth_seals.append(self.hearth.seal)
+            else:
+                tok = self.out(h).argmax(dim=-1)
             outs.append(tok)
             if eos_id is not None and bool((tok == eos_id).all()):
                 break
@@ -145,15 +159,19 @@ class LargeCECModel(nn.Module):
         pad_id: int = 0,
         span_len: int = 12,
         mass_fn: str = "sparsemax",
+        correlator_kind: str = "classic",
     ):
         super().__init__()
         self.pad_id = pad_id
         self.n_buckets = n_buckets
         self.emb_dim = emb_dim
         self.dim = dim
+        self.correlator_kind = (correlator_kind or "classic").lower()
         self.emb = nn.Embedding(n_buckets, emb_dim, padding_idx=pad_id, sparse=True)
         self.encoder = HashLocalEncoder(self.emb, emb_dim, dim, pad_id=pad_id)
-        self.correlator = SoftCorrelator(dim=dim, mass_fn=mass_fn, learn_temperature=True)
+        self.correlator = build_correlator(
+            dim=dim, mass_fn=mass_fn, correlator_kind=self.correlator_kind, learn_temperature=True
+        )
         self.gate = CoverageGate(dim=dim)
         self.decoder = ExtractiveDecoder(dim=dim, span_len=span_len)
         self.answer_lm = SmallAnswerLM(answer_vocab_size, dim, pad_id=pad_id)

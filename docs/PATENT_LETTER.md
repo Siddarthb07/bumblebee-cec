@@ -78,7 +78,7 @@ That is a **composition** claim candidate, not a claim that sparsemax, GRUs, or 
 
 - Code: `src/bumblebee/model.py` (LocalStateEncoder, SoftCorrelator, CoverageGate, GenerativeAnswerDecoder, CECModel); `gate.py`; `train.py`; `router.py`.
 - Data: sealed pack in `data/corpus/passages.jsonl` and `data/evals/questions.jsonl` — 11568 passages / 10693 evals (`data/sealed/SEAL.json`). Dolly is one source among WikiText-2, Cosmopedia, SmolLM slices, FineMath, FineWeb-Edu, Wikipedia, HotpotQA, and Natural Questions, plus local skill seeds.
-- Scale that has actually been trained here: headline about **24.3M** parameters at dim=128 on that pack. An earlier demo was about 2–6M. Mac-fit sparse-hash runs can print a much larger headline count; that count is not dense FLOPs. None of these is a 30B training run.
+- Scale that has actually been trained here: headline **127,106,806** parameters at dim=640 on that pack. An earlier published card was about 24.3M at dim=128, and a demo before that was about 2–6M. Mac-fit sparse-hash runs can print a much larger headline count; that count is not dense FLOPs. None of these is a 30B training run.
 
 ### 8. Inventor / ownership
 

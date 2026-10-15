@@ -31,6 +31,72 @@ def span_tokens(tokens: Sequence[str], start: int, end: int) -> str:
     return " ".join(tokens[start : end + 1])
 
 
+def _token_char_spans(text: str, tokens: Sequence[str]) -> list:
+    """Greedy left-to-right locate of tokens inside raw passage text."""
+    spans: list = []
+    pos = 0
+    lower = text.lower()
+    for tok in tokens:
+        idx = lower.find(tok, pos)
+        if idx < 0:
+            idx = lower.find(tok)
+            if idx < 0:
+                spans.append((pos, pos))
+                continue
+        spans.append((idx, idx + len(tok)))
+        pos = idx + len(tok)
+    return spans
+
+
+def readable_extract(
+    passage_text: str,
+    tokens: Sequence[str],
+    start: int,
+    end: int,
+    *,
+    max_chars: int = 360,
+) -> str:
+    """
+    Expand a token span to a full sentence (or two) in the raw passage.
+
+    Token streams drop punctuation/casing, so bare span_tokens reads like scrapes.
+    Product answers should read like English while staying extractive.
+    """
+    text = (passage_text or "").strip()
+    if not text or not tokens:
+        return span_tokens(tokens, start, end)
+    spans = _token_char_spans(text, tokens)
+    if not spans:
+        return span_tokens(tokens, start, end)
+    end = min(end, len(spans) - 1)
+    start = max(0, min(start, end))
+    c0, c1 = spans[start][0], spans[end][1]
+    # sentence start: after previous terminator, else passage start
+    left = 0
+    for m in re.finditer(r"[.!?…][\"')\]]*\s+", text[:c0]):
+        left = m.end()
+    # sentence end: through next terminator
+    right = len(text)
+    m = re.search(r"[.!?…][\"')\]]*", text[c1:])
+    if m:
+        right = c1 + m.end()
+    chunk = text[left:right].strip()
+    # If the model span was mid-list / mid-clause and sentence is huge, tighten
+    if len(chunk) > max_chars:
+        pad_l = max(left, c0 - 48)
+        pad_r = min(right, c1 + 120)
+        chunk = text[pad_l:pad_r].strip()
+        # avoid starting mid-word
+        if pad_l > left and " " in chunk:
+            chunk = chunk.split(" ", 1)[-1]
+    chunk = re.sub(r"\s+", " ", chunk).strip(" ,;:-")
+    # Drop leading conjunction scraps if still mid-clause
+    chunk = re.sub(r"^(?:and|or|but|which|who|that|with)\s+", "", chunk, flags=re.I)
+    if chunk and chunk[0].islower():
+        chunk = chunk[0].upper() + chunk[1:]
+    return chunk or span_tokens(tokens, start, end)
+
+
 def faithfulness_ok(answer: str, evidence_text: str, min_overlap: float = 0.15) -> bool:
     """Soft grounding: answer should share some content with evidence/passage."""
     a = {t for t in tokenize(answer) if len(t) > 2}
@@ -84,6 +150,11 @@ def decide(
 ) -> AskResult:
     """Decide answer vs refuse. Never substitutes gold labels — score those separately."""
     citation = span_tokens(passage_tokens, best_start, best_end)
+    # User-facing extract: full sentence(s) from raw passage when available
+    if passage_text and passage_tokens:
+        readable = readable_extract(passage_text, passage_tokens, best_start, best_end)
+    else:
+        readable = citation
     evidence = passage_text or citation
     if confidence < threshold:
         return AskResult(
@@ -100,10 +171,10 @@ def decide(
     if gen and looks_like_garbage(gen, question or ""):
         gen = ""
 
-    # Extractive-first: citation is the default answer; GRU polish only if faithful
+    # Extractive-first: readable sentence is the default; GRU polish only if faithful
     if prefer_extractive:
-        if citation.strip() and not looks_like_garbage(citation, question or ""):
-            answer = citation.strip()
+        if readable.strip() and not looks_like_garbage(readable, question or ""):
+            answer = readable.strip()
             if (
                 gen
                 and faithfulness_ok(gen, evidence, min_overlap=0.2)
@@ -115,11 +186,11 @@ def decide(
         elif gen and faithfulness_ok(gen, evidence):
             answer = gen
         else:
-            answer = citation.strip()
+            answer = readable.strip() or citation.strip()
     else:
         answer = gen
         if not answer:
-            answer = citation.strip()
+            answer = readable.strip() or citation.strip()
         if answer and looks_like_garbage(answer, question or ""):
             return AskResult(
                 status="refuse",
@@ -152,7 +223,20 @@ def decide(
             citation_end=best_end,
         )
     if not faithfulness_ok(answer, evidence):
-        if citation.strip() and faithfulness_ok(citation, evidence, min_overlap=0.5):
+        if readable.strip() and faithfulness_ok(readable, evidence, min_overlap=0.5):
+            if not looks_like_garbage(readable, question or ""):
+                answer = readable
+            else:
+                return AskResult(
+                    status="refuse",
+                    answer="",
+                    confidence=float(confidence),
+                    reason="unfaithful_decode",
+                    citation_span=citation,
+                    citation_start=best_start,
+                    citation_end=best_end,
+                )
+        elif citation.strip() and faithfulness_ok(citation, evidence, min_overlap=0.5):
             if not looks_like_garbage(citation, question or ""):
                 answer = citation
             else:

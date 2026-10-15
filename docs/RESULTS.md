@@ -10,21 +10,21 @@ Predictions never use gold answers. Extractive-first decode. Lower AURC is bette
 
 | System | In-domain F1 | F1 n | F1 CI95 | OOD refuse P | OOD refuse R | ECE answered | ECE mixed | AURC |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| cec | 0.122 | 2071 | [0.114,0.129] | 0.068 | 0.094 | 0.915 | 0.907 | 0.866 |
-| bm25 | 0.136 | 2079 | [0.128,0.144] | 0.062 | 0.075 | 0.880 | 0.864 | 0.850 |
+| cec | 0.131 | 497 | [0.118,0.146] | 0.027 | 0.849 | 0.942 | 0.960 | 0.929 |
+| bm25 | 0.133 | 2079 | [0.125,0.140] | 0.062 | 0.075 | 0.866 | 0.850 | 0.850 |
 | embed | 0.064 | 2079 | [0.061,0.068] | 0.062 | 0.075 | 0.741 | 0.725 | 0.938 |
-| bm25_raw | 0.137 | 2140 | [0.128,0.145] | 0.000 | 0.000 | 0.879 | 0.881 | 0.847 |
+| bm25_raw | 0.134 | 2140 | [0.126,0.142] | 1.000 | 0.019 | 0.863 | 0.866 | 0.848 |
 | embed_raw | 0.066 | 2140 | [0.062,0.069] | 0.000 | 0.000 | 0.740 | 0.740 | 0.935 |
 
-Oracle-passage F1 (diagnostic only, not same-protocol): 0.203 (n=1714).
+Oracle-passage F1 (diagnostic only, not same-protocol): 0.189 (n=374).
 
 ## Param card (honest)
 
-- **Headline params:** 24,291,574
+- **Headline params:** 127,106,806
 - **Sparse hash table:** 0 × 0 ≈ 0 (mostly untouched rows)
-- **Dense core (approx):** ~24,291,574 at dim=128
-- **Temperature (post-hoc):** 10.0
-- **Platt:** a=1.0 b=0.0 active=False
+- **Dense core (approx):** ~127,106,806 at dim=640
+- **Temperature (post-hoc):** 1.0
+- **Platt:** a=— b=— active=False
 - **Mass fn:** sparsemax
 
 Do not equate sparse hash params with dense transformer FLOPs.
@@ -33,19 +33,14 @@ Do not equate sparse hash params with dense transformer FLOPs.
 
 | Split | N | Refuse P | Refuse R |
 | --- | ---: | ---: | ---: |
-| entity_gap | 30 | 1.000 | 0.100 |
-| far_ood | 23 | 1.000 | 0.087 |
+| entity_gap | 30 | 1.000 | 0.767 |
+| far_ood | 23 | 1.000 | 0.957 |
 
 ## Dataset
 
 - Hugging Face (ingest source only): `asset_pack:dolly+wikitext+cosmopedia+smollm+finemath+fineweb_edu+wikipedia+hotpot+nq`
-- Closed passages: 11568 (`data/corpus/passages.jsonl`, same as `data/sealed/SEAL.json`)
-- Eval questions: 10693 (`data/evals/questions.jsonl`)
-  - in_domain 10411
-  - far_ood 132
-  - entity_gap 150
-- `data/hf_source.json` still records the ingest-time snapshot (10563 evals, entity_gap 20). `grow-entity-gap` added 130 entity-gap rows after that snapshot. The JSONL files and `SEAL.json` are the counts to cite.
-- The refuse-by-split table above is the held-out slice the bench scored (entity_gap N=30, far_ood N=23), not the full split sizes.
+- Closed passages: 11568
+- Eval questions: 10563 ({'in_domain': 10411, 'far_ood': 132, 'entity_gap': 20})
 
 ## Sealed pack
 
@@ -58,7 +53,7 @@ Do not equate sparse hash params with dense transformer FLOPs.
 
 - Product skills 20/20 ≠ core CEC skill — see `docs/SKILLS_BENCH.md` dual scoreboard.
 - If BM25 wins in-domain F1 on the **retrieved** protocol, say so.
-- On this pack, **BM25 leads CEC** on retrieved in-domain F1 (0.136 vs 0.122).
+- On this pack, **BM25 leads CEC** on retrieved in-domain F1 (0.133 vs 0.131).
 - Prefer `ece_answered` over mixed ECE (correct refuses at low conf inflate mixed ECE).
 - `docs/SYSTEMS_BENCH.md` is quarantined — do not cite.
 - Scaled CEC asset pack ≠ frontier LLM (no transformer backend).
@@ -72,6 +67,8 @@ Do not equate sparse hash params with dense transformer FLOPs.
 - `artifacts/bench_skills.json` — dual scoreboard
 - `artifacts/bench_adversarial.json` — paraphrase / distractor / conflict
 - `artifacts/ablation_mass.json` — SoftCorrelator mass_fn ablation
+- `artifacts/ablation_linear.json` — classic vs SSM+gated_delta scratch vs distill
+- `artifacts/cec_linear.pt` — optional distilled linear student (not product default)
 - `artifacts/bench_memory.json` — CEC RSS/params vs LLM weight catalogs
 - `data/sealed/SEAL.json` — pack checksums
 

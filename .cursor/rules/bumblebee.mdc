@@ -1,0 +1,25 @@
+---
+description: Bumblebee CEC standing claim after the 2026-10-16 pull
+alwaysApply: true
+---
+
+# Bumblebee CEC standing claim
+
+Updated 2026-10-16 from research history `fae3909` ("Ship the 127M dim-640 checkpoint and the benches measured on it.").
+
+- Public repo: https://github.com/Siddarthb07/bumblebee-cec. Package `bumblebee-cec` 0.4.1, MIT. Import and CLI stay `bumblebee`. This clone does not ship `artifacts/cec.pt`.
+- Research history: https://github.com/Siddarthb07/bumblebee at `fae3909`. The 127,106,806-param checkpoint is Git LFS there (`artifacts/cec.pt`, about 0.47 GB). Package version on that repo is still 0.3.0.
+
+Honesty from the dim=640 card:
+
+- Same-protocol retrieved eval, no gold passage. BM25 in-domain F1 0.133 (n=2079), CEC 0.131 (n=497). BM25 still leads. Do not drop the different n.
+- CEC OOD refuse recall 0.849. Entity-gap recall 0.767, far-ood recall 0.957, precision 1.0 on that small N.
+- Product skills 20/20 are packs and tools. Core CEC is 10/17.
+- Memory card is footprint only: 127.1M params, dim=640, peak RSS 0.717 GB, mean ask 8.6 s. Do not equate that count with dense transformer FLOPs.
+- Hearth is the decoder word table. It does not add parameters.
+- Held-out quality vs gpt2-medium is not a CEC win.
+- `docs/SYSTEMS_BENCH.md` is quarantined. Do not cite it.
+- Patent: nothing filed.
+- Scale to 30B is an architectural hypothesis, not a measured run.
+
+Sealed pack: 11568 passages, 10693 evals, 8500 train, 2193 test, 2114 cal. Seal SHA-256 prefix `525f9d66`.

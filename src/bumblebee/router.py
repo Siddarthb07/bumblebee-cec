@@ -126,11 +126,20 @@ def ask_hybrid(
 
     def _finish(out: dict) -> dict:
         try:
+            from bumblebee.hybrid_corpus import ensure_source_label
+            from bumblebee.miss_log import record_ask
             from bumblebee.telemetry import emit_ask_activity
 
+            out = ensure_source_label(out)
             emit_ask_activity(root, question, out, source="cli")
+            record_ask(root, question, out)
         except Exception:
-            pass
+            try:
+                from bumblebee.hybrid_corpus import ensure_source_label
+
+                out = ensure_source_label(out)
+            except Exception:
+                pass
         return out
 
     if mode_l == "open":
@@ -160,6 +169,7 @@ def ask_hybrid(
             "model_id": "cec_tools",
             "skill": skill,
             "source": "tool",
+            "source_label": "tool",
             "version": "v2",
         })
 
@@ -178,6 +188,7 @@ def ask_hybrid(
             "model_id": "cec_pack",
             "skill": pack_skill if pack_skill != "knowledge" else "corpus",
             "source": "pack",
+            "source_label": "pack",
             "version": "v2",
         }
         if wants_web:
@@ -201,6 +212,7 @@ def ask_hybrid(
             "model_id": "cec_knowledge",
             "skill": "corpus",
             "source": "knowledge",
+            "source_label": "knowledge",
             "version": "v2",
         }
         if wants_web:
@@ -209,7 +221,24 @@ def ask_hybrid(
                 out["web"] = web
         return _finish(out)
 
-    # Primary: CEC corpus try-harder cascade
+    # Product corpus: BM25 shortlist → sentence craft → CEC coverage gate
+    if mode_l == "auto" and intent not in {"chat"}:
+        try:
+            from bumblebee.hybrid_corpus import hybrid_corpus_ask
+
+            hybrid = hybrid_corpus_ask(root, question)
+        except Exception:
+            hybrid = None
+        if hybrid is not None:
+            # Craft+gate decided — do not fall through to CEC span scrapes
+            out = dict(hybrid)
+            out.setdefault("mode", "corpus")
+            out.setdefault("model_id", "hybrid_bm25_cec")
+            out.setdefault("skill", "corpus")
+            out.setdefault("version", "v3")
+            return _finish(out)
+
+    # Fallback: full CEC try-harder cascade (when craft found nothing)
     skill = intent if intent in {"code", "math", "chat"} else "corpus"
     try:
         raw = ask_question(root, question, passage_id=passage_id, history=history)
@@ -221,16 +250,13 @@ def ask_hybrid(
             "reason": "checkpoint_missing",
             "citation_span": "",
             "passage_id": "",
-            "mode": "refuse",
-            "model_id": "none",
+            "mode": "corpus",
+            "model_id": "cec",
             "skill": skill,
             "source": "refuse",
+            "source_label": "refuse",
+            "hint": "No checkpoint in this checkout. Train first: python -m bumblebee.cli train",
             "version": "v2",
-            "hint": (
-                "No CEC checkpoint in artifacts/ (need vocab.json and cec.pt). "
-                "Pack and live-tool questions still work. "
-                "Corpus answers need: python -m bumblebee.cli train"
-            ),
         })
     out = _tag(
         raw,
@@ -244,13 +270,30 @@ def ask_hybrid(
             out[k] = raw[k]
 
     corpus_hit = out.get("status") == "answer" and float(out.get("confidence") or 0) >= 0.35
-    # Web side-channel: always available on search intent; also when corpus refuses
-    if wants_web or not corpus_hit:
+    # Web only when user asks to search, OR factoid miss with strong overlap (labeled).
+    # Council: do not silently become an LLM-search wrapper.
+    factoid = bool(
+        re.search(
+            r"\b(what(?:'?s|s)?|what\s+is|who(?:'?s|s)?|who\s+is|real\s+name|full\s+name|"
+            r"when\s+was|when\s+did|where\s+is|define|tell\s+me\s+about)\b",
+            question,
+            re.I,
+        )
+    )
+    if wants_web or (mode_l == "auto" and not corpus_hit and factoid):
         web = try_web_search_side(question)
         if web:
             out["web"] = web
-            # Only promote web to primary if corpus refused AND user asked to search
-            if not corpus_hit and wants_web and out.get("status") == "refuse":
+            promote = (
+                mode_l == "auto"
+                and (not corpus_hit)
+                and out.get("status") == "refuse"
+                and (
+                    wants_web
+                    or (factoid and float(web.get("confidence") or 0) >= 0.28)
+                )
+            )
+            if promote:
                 out["status"] = "answer"
                 out["answer"] = web["answer"]
                 out["confidence"] = web["confidence"]
@@ -258,14 +301,21 @@ def ask_hybrid(
                 out["citation_span"] = web.get("citation_span", "")
                 out["passage_id"] = web.get("passage_id", "")
                 out["source"] = "web_unverified"
+                out["source_label"] = "web_unverified"
                 out["mode"] = "web"
                 out["model_id"] = "web_ddg"
                 out["skill"] = "search"
                 out["unverified"] = True
                 out["overlap"] = web.get("overlap")
-                # Keep side copy for transparency
-                out["web"] = {**web, "note": "also_primary_because_corpus_miss"}
+                out["web"] = {**web, "note": "primary_because_corpus_miss"}
+                out["hint"] = (
+                    "Not in my frozen pack — showing an unverified web lookup. "
+                    "Ask again with pack topics for cited answers."
+                )
 
     if out.get("status") == "refuse" and not out.get("hint"):
-        out["hint"] = "I couldn't ground this in my pack after trying multiple passages."
+        out["hint"] = (
+            "I couldn't ground this in my pack. Try a topic from the corpus, "
+            "or rephrase — I won't invent an answer."
+        )
     return _finish(out)

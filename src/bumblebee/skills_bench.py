@@ -110,6 +110,7 @@ def run_skills_bench(root: Path, mode: str = "auto") -> dict:
                 "source": prod.get("reason") or prod.get("model_id"),
                 "f1": round(pf1, 4),
                 "ok": pok,
+                "answer": prod.get("answer") or prod.get("reason") or "",
                 "answer_preview": (prod.get("answer") or prod.get("reason") or "")[:160],
                 "reason": prod.get("reason"),
             }
@@ -146,6 +147,7 @@ def run_skills_bench(root: Path, mode: str = "auto") -> dict:
                 "source": "cec_core",
                 "f1": round(cf1, 4),
                 "ok": cok,
+                "answer": core.get("answer") or core.get("reason") or "",
                 "answer_preview": (core.get("answer") or core.get("reason") or "")[:160],
                 "reason": core.get("reason"),
             }

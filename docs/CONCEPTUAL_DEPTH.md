@@ -19,7 +19,7 @@ Transformers are trained to continue tokens. They are not required to know when 
 
 Lead with measurement, not slogans:
 
-- “On this frozen pack, BM25 leads in-domain F1 (0.136 vs 0.122). Entity-gap and far-ood refuses are precise and rare (recall about 0.10).”
+- “On this frozen pack, BM25 leads in-domain F1 (0.133 vs 0.131). CEC n is 497 and BM25 n is 2079. Entity-gap recall is 0.767 and far-ood recall is 0.957, precision 1.0 on that small N.”
 - “That split is the point — the comparison is published, including the loss to BM25.”
 
 See [RESULTS.md](RESULTS.md) for the table and [PORTFOLIO.md](PORTFOLIO.md) for a short demo script.

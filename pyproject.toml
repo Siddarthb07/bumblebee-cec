@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bumblebee-cec"
-version = "0.4.0"
+version = "0.4.1"
 description = "Transformer-free closed-corpus ask, cite, and refuse correlator (CEC)"
 readme = "README.md"
 requires-python = ">=3.9"

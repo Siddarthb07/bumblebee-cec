@@ -72,15 +72,23 @@ def get_bm25_index(root: Path, passages):
 
 _STOP = {
     "a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "is", "are", "was", "were",
-    "be", "been", "being", "what", "which", "who", "whom", "how", "why", "when", "where",
+    "be", "been", "being", "what", "whats", "what's", "which", "who", "whom", "whos", "who's",
+    "how", "hows", "how's", "why", "when", "whens", "where's", "wheres", "where",
     "do", "does", "did", "can", "could", "should", "would", "with", "as", "by", "from",
     "that", "this", "these", "those", "it", "its", "at", "into", "about",
     "make", "up", "get", "take", "give", "use", "used", "using",
+    "please", "tell", "me", "know", "define", "meaning",
+    "name", "real", "true", "called", "known", "full",
 }
 
 
+def question_content(question: str) -> set:
+    """Non-stop content tokens from a question (shared by support + grounding)."""
+    return {t for t in tokenize(question) if t not in _STOP and len(t) > 1}
+
+
 def content_support(question: str, passage_tokens) -> float:
-    q = {t for t in tokenize(question) if t not in _STOP}
+    q = question_content(question)
     if not q:
         return 0.0
     p = {t for t in passage_tokens if t not in _STOP}
@@ -89,11 +97,34 @@ def content_support(question: str, passage_tokens) -> float:
 
 def novel_content_ratio(question: str, corpus_tokens) -> float:
     """Fraction of question content words absent from the whole corpus."""
-    q = {t for t in tokenize(question) if t not in _STOP}
+    q = question_content(question)
     if not q:
         return 0.0
     missing = [t for t in q if t not in corpus_tokens]
     return len(missing) / max(len(q), 1)
+
+
+def lexical_grounded(question: str, passage_tokens) -> bool:
+    """
+    Hard lexical gate: refuse when the passage doesn't cover question entities.
+
+    Uses phrase-aware entity coverage (tony+stark together) so a tennis player
+    named Stark or 'Stark Street' cannot answer 'Tony Stark'.
+    """
+    from bumblebee.answer_craft import entities_covered
+
+    # Rebuild rough text from tokens for entity checks
+    text = " ".join(passage_tokens)
+    if not entities_covered(question, text):
+        return False
+    q = question_content(question)
+    if not q:
+        return False
+    p = {t for t in passage_tokens if t not in _STOP}
+    support = len(q & p) / max(len(q), 1)
+    if len(q) <= 3 and support < 1.0:
+        return False
+    return support >= 0.45
 
 
 def find_answer_start(passage_tokens: Sequence[str], answer: str) -> int:
@@ -211,6 +242,15 @@ def train_model(
     max_q: int = 64,
     device: Optional[str] = None,
     mass_fn: str = "sparsemax",
+    encoder_kind: str = "gru",
+    correlator_kind: str = "classic",
+    ckpt_name: str = "cec.pt",
+    max_train_examples: Optional[int] = None,
+    learn_temperature: bool = True,
+    temperature: float = 1.0,
+    topk: int = 8,
+    encoder_delta_max: float = 8.0,
+    correlator_delta_max: float = 2.0,
 ) -> Path:
     # Avoid OpenMP hyper-barrier hangs on small Macs under load
     try:
@@ -231,6 +271,8 @@ def train_model(
 
     # Train on residues excluding test(0) and cal(1) so calibration does not leak
     train_evals, _cal, _test = calibration_split(evals)
+    if max_train_examples is not None and max_train_examples > 0:
+        train_evals = train_evals[: int(max_train_examples)]
     ds = QADataset(train_evals, pmap, vocab, max_q=max_q, max_p=max_p, max_a=64)
     batch_size = 4
     if dim >= 384:
@@ -244,8 +286,20 @@ def train_model(
         flush=True,
     )
 
+    encoder_kind = (encoder_kind or "gru").lower()
+    correlator_kind = (correlator_kind or "classic").lower()
     model = CECModel(
-        len(vocab.itos), dim=dim, pad_id=vocab.pad_id, mass_fn=mass_fn
+        len(vocab.itos),
+        dim=dim,
+        pad_id=vocab.pad_id,
+        mass_fn=mass_fn,
+        encoder_kind=encoder_kind,
+        correlator_kind=correlator_kind,
+        learn_temperature=learn_temperature,
+        temperature=temperature,
+        topk=topk,
+        encoder_delta_max=encoder_delta_max,
+        correlator_delta_max=correlator_delta_max,
     ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -264,6 +318,7 @@ def train_model(
     bind_root(root)
     global_step = 0
     n_params = sum(p.numel() for p in model.parameters())
+    arch_tag = f"dense_cec:{encoder_kind}+{correlator_kind}"
     # Fresh loss history for this run
     hist = root / "artifacts" / "live" / "history.jsonl"
     try:
@@ -273,7 +328,9 @@ def train_model(
     write_train_snapshot(
         {
             "status": "running",
-            "arch": "dense_cec",
+            "arch": arch_tag,
+            "encoder_kind": encoder_kind,
+            "correlator_kind": correlator_kind,
             "epoch": 0,
             "epochs": epochs,
             "step": 0,
@@ -296,7 +353,8 @@ def train_model(
             p = batch["passage_ids"].to(device)
             a = batch["answer_ids"].to(device)
             out = model(q, p, answer_ids=a if use_gen else None)
-            gate_loss = F.binary_cross_entropy(out["confidence"], batch["answerable"].to(device))
+            conf = out["confidence"].clamp(0.0, 1.0)
+            gate_loss = F.binary_cross_entropy(conf, batch["answerable"].to(device))
             start_logits = out["start_logits"]
             end_logits = out["end_logits"]
             ans_mask = batch["answerable"].to(device)
@@ -396,7 +454,9 @@ def train_model(
     write_train_snapshot(
         {
             "status": "finished",
-            "arch": "dense_cec",
+            "arch": arch_tag,
+            "encoder_kind": encoder_kind,
+            "correlator_kind": correlator_kind,
             "epoch": epochs,
             "epochs": epochs,
             "step": global_step,
@@ -419,8 +479,12 @@ def train_model(
         "max_q": max_q,
         "n_params": n_params,
         "mass_fn": mass_fn,
+        "encoder_kind": encoder_kind,
+        "correlator_kind": correlator_kind,
+        "train_mode": "scratch",
+        "arch": "dense_cec",
     }
-    path = art / "cec.pt"
+    path = art / ckpt_name
     torch.save(ckpt, path)
     (art / "config.json").write_text(
         json.dumps(
@@ -432,13 +496,231 @@ def train_model(
                 "n_params": n_params,
                 "vocab_size": len(vocab.itos),
                 "mass_fn": mass_fn,
+                "encoder_kind": encoder_kind,
+                "correlator_kind": correlator_kind,
+                "train_mode": "scratch",
                 "arch": "dense_cec",
             },
             indent=2,
         ),
         encoding="utf-8",
     )
-    print(f"CEC params={n_params} ({n_params/1e6:.2f}M) mass_fn={mass_fn}")
+    print(
+        f"CEC params={n_params} ({n_params/1e6:.2f}M) mass_fn={mass_fn} "
+        f"encoder={encoder_kind} correlator={correlator_kind} -> {path.name}"
+    )
+    return path
+
+
+def train_model_distill(
+    root: Path,
+    *,
+    teacher_path: Optional[Path] = None,
+    epochs: int = 2,
+    lr: float = 1e-3,
+    threshold: float = 0.35,
+    max_p: int = 192,
+    max_q: int = 64,
+    device: Optional[str] = None,
+    mass_fn: str = "sparsemax",
+    encoder_kind: str = "ssm",
+    correlator_kind: str = "gated_delta",
+    ckpt_name: str = "cec_linear.pt",
+    lambda_mass: float = 1.0,
+    lambda_span: float = 0.5,
+    lambda_gate: float = 0.5,
+    lambda_task: float = 0.5,
+    max_train_examples: Optional[int] = None,
+    span_temperature: float = 2.0,
+    learn_temperature: bool = True,
+    temperature: float = 1.0,
+    topk: int = 8,
+    encoder_delta_max: float = 8.0,
+    correlator_delta_max: float = 2.0,
+) -> Path:
+    """
+    Distill frozen classic CEC → linear student (SSM + gated-delta).
+    Student dim/vocab match the teacher. Saves to artifacts/cec_linear.pt by default.
+    """
+    from bumblebee.distill import copy_embedding_from_teacher, distill_loss
+
+    try:
+        torch.set_num_threads(1)
+    except Exception:
+        pass
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    art = root / "artifacts"
+    art.mkdir(parents=True, exist_ok=True)
+    teacher_path = Path(teacher_path) if teacher_path else art / "cec.pt"
+    if not teacher_path.exists():
+        raise FileNotFoundError(f"Teacher checkpoint missing: {teacher_path}")
+
+    t_ckpt = torch.load(teacher_path, map_location="cpu", weights_only=False)
+    dim = int(t_ckpt["dim"])
+    pad_id = int(t_ckpt["pad_id"])
+    vocab_size = int(t_ckpt["vocab_size"])
+    t_mass = t_ckpt.get("mass_fn") or mass_fn
+    t_enc = (t_ckpt.get("encoder_kind") or "gru").lower()
+    t_corr = (t_ckpt.get("correlator_kind") or "classic").lower()
+    max_p = int(t_ckpt.get("max_p", max_p))
+    max_q = int(t_ckpt.get("max_q", max_q))
+    threshold = float(t_ckpt.get("threshold", threshold))
+
+    vocab_path = art / "vocab.json"
+    if not vocab_path.exists():
+        raise FileNotFoundError(f"Missing vocab at {vocab_path}")
+    vocab = Vocab.load(vocab_path)
+    if len(vocab.itos) != vocab_size:
+        # Prefer teacher vocab size for emb copy; rebuild if mismatch is fatal
+        print(
+            f"warn: vocab.json size={len(vocab.itos)} vs teacher vocab_size={vocab_size}",
+            flush=True,
+        )
+
+    teacher = CECModel(
+        vocab_size,
+        dim=dim,
+        pad_id=pad_id,
+        mass_fn=t_mass,
+        encoder_kind=t_enc,
+        correlator_kind=t_corr,
+    )
+    teacher.load_state_dict(t_ckpt["model"], strict=False)
+    teacher.to(device)
+    teacher.eval()
+    for p in teacher.parameters():
+        p.requires_grad_(False)
+
+    encoder_kind = (encoder_kind or "ssm").lower()
+    correlator_kind = (correlator_kind or "gated_delta").lower()
+    student = CECModel(
+        vocab_size,
+        dim=dim,
+        pad_id=pad_id,
+        mass_fn=t_mass,
+        encoder_kind=encoder_kind,
+        correlator_kind=correlator_kind,
+        learn_temperature=learn_temperature,
+        temperature=temperature,
+        topk=topk,
+        encoder_delta_max=encoder_delta_max,
+        correlator_delta_max=correlator_delta_max,
+    ).to(device)
+    emb_copied = copy_embedding_from_teacher(student, teacher)
+    print(
+        f"distill teacher={teacher_path.name} dim={dim} "
+        f"student={encoder_kind}+{correlator_kind} emb_copied={emb_copied}",
+        flush=True,
+    )
+
+    corpus_dir = root / "data" / "corpus"
+    evals = load_evals(root / "data" / "evals" / "questions.jsonl")
+    passages = load_passages(corpus_dir)
+    pmap = passage_index(passages)
+    train_evals, _cal, _test = calibration_split(evals)
+    if max_train_examples is not None and max_train_examples > 0:
+        train_evals = train_evals[: int(max_train_examples)]
+    ds = QADataset(train_evals, pmap, vocab, max_q=max_q, max_p=max_p, max_a=64)
+    batch_size = 4
+    if dim >= 384:
+        batch_size = 1
+    elif dim >= 256:
+        batch_size = 2
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=lambda b: collate(b, vocab.pad_id))
+    opt = torch.optim.Adam(student.parameters(), lr=lr)
+
+    from bumblebee.telemetry import bind_root, write_train_snapshot
+
+    bind_root(root)
+    global_step = 0
+    n_params = sum(p.numel() for p in student.parameters())
+    print(f"distill train examples={len(train_evals)} batch_size={batch_size}", flush=True)
+    for epoch in range(epochs):
+        student.train()
+        total = 0.0
+        for batch in loader:
+            q = batch["question_ids"].to(device)
+            p = batch["passage_ids"].to(device)
+            p_mask = (p != pad_id).float()
+            with torch.no_grad():
+                t_out = teacher(q, p)
+            s_out = student(q, p)
+            loss, metrics = distill_loss(
+                t_out,
+                s_out,
+                passage_mask=p_mask,
+                answerable=batch["answerable"].to(device),
+                start=batch["start"].to(device),
+                end=batch["end"].to(device),
+                lambda_mass=lambda_mass,
+                lambda_span=lambda_span,
+                lambda_gate=lambda_gate,
+                lambda_task=lambda_task,
+                span_temperature=span_temperature,
+            )
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            total += float(loss.item())
+            global_step += 1
+            if global_step <= 10 or global_step % 10 == 0:
+                write_train_snapshot(
+                    {
+                        "status": "running",
+                        "arch": f"distill:{encoder_kind}+{correlator_kind}",
+                        "train_mode": "distill",
+                        "epoch": epoch + 1,
+                        "epochs": epochs,
+                        "step": global_step,
+                        "loss": metrics["loss"],
+                        "mass_kl": metrics["mass_kl"],
+                        "span_kl": metrics["span_kl"],
+                        "dim": dim,
+                        "n_params": n_params,
+                    },
+                    root=root,
+                )
+        print(
+            f"distill epoch {epoch+1}/{epochs} loss={total/max(len(loader),1):.4f}",
+            flush=True,
+        )
+
+    n_params = sum(p.numel() for p in student.parameters())
+    ckpt = {
+        "model": student.state_dict(),
+        "dim": dim,
+        "threshold": threshold,
+        "vocab_size": vocab_size,
+        "pad_id": pad_id,
+        "max_p": max_p,
+        "max_q": max_q,
+        "n_params": n_params,
+        "mass_fn": t_mass,
+        "encoder_kind": encoder_kind,
+        "correlator_kind": correlator_kind,
+        "train_mode": "distill",
+        "teacher_ckpt": str(teacher_path.name),
+        "arch": "dense_cec",
+    }
+    path = art / ckpt_name
+    torch.save(ckpt, path)
+    cfg_payload = {
+        "threshold": threshold,
+        "dim": dim,
+        "max_p": max_p,
+        "max_q": max_q,
+        "n_params": n_params,
+        "vocab_size": vocab_size,
+        "mass_fn": t_mass,
+        "encoder_kind": encoder_kind,
+        "correlator_kind": correlator_kind,
+        "train_mode": "distill",
+        "teacher_ckpt": str(teacher_path.name),
+        "arch": "dense_cec",
+    }
+    cfg_name = "config.json" if ckpt_name == "cec.pt" else "config_linear.json"
+    (art / cfg_name).write_text(json.dumps(cfg_payload, indent=2), encoding="utf-8")
+    print(f"distilled student params={n_params} ({n_params/1e6:.2f}M) -> {path}")
     return path
 
 
@@ -760,6 +1042,8 @@ def load_runtime(root: Path, device: Optional[str] = None):
             answer_vocab_size=int(ckpt["answer_vocab_size"]),
             dim=int(ckpt["dim"]),
             pad_id=int(ckpt["pad_id"]),
+            mass_fn=ckpt.get("mass_fn") or "sparsemax",
+            correlator_kind=ckpt.get("correlator_kind") or "classic",
         )
         model.load_state_dict(ckpt["model"], strict=False)
         model.to(device)
@@ -773,17 +1057,29 @@ def load_runtime(root: Path, device: Optional[str] = None):
     else:
         vocab = Vocab.load(vocab_path)
         mass_fn = ckpt.get("mass_fn") or "sparsemax"
+        encoder_kind = ckpt.get("encoder_kind") or "gru"
+        correlator_kind = ckpt.get("correlator_kind") or "classic"
         if (art / "config.json").exists():
             try:
-                mass_fn = json.loads((art / "config.json").read_text()).get("mass_fn", mass_fn)
+                cfg = json.loads((art / "config.json").read_text())
+                mass_fn = cfg.get("mass_fn", mass_fn)
+                encoder_kind = cfg.get("encoder_kind", encoder_kind)
+                correlator_kind = cfg.get("correlator_kind", correlator_kind)
             except Exception:
                 pass
         model = CECModel(
-            ckpt["vocab_size"], dim=ckpt["dim"], pad_id=ckpt["pad_id"], mass_fn=mass_fn
+            ckpt["vocab_size"],
+            dim=ckpt["dim"],
+            pad_id=ckpt["pad_id"],
+            mass_fn=mass_fn,
+            encoder_kind=encoder_kind,
+            correlator_kind=correlator_kind,
         ).to(device)
         # strict=False: older checkpoints lack decoder.end.* / correlator.log_tau
         model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
+    if hasattr(model, "answer_lm") and hasattr(model.answer_lm, "enable_hearth"):
+        model.answer_lm.enable_hearth()
     passages = load_passages(root / "data" / "corpus")
     max_q = int(ckpt.get("max_q", 64))
     max_p = int(ckpt.get("max_p", 192))
@@ -861,17 +1157,32 @@ def ask_question_fast(root: Path, question: str) -> dict:
         if content_support(question, p_toks) < 0.12 or novel_content_ratio(question, corpus_tokens) >= 0.5:
             conf = conf * 0.35
         conf = _apply_cal(conf, temperature, platt_a, platt_b, use_platt)
-        result = decide(
-            passage_tokens=p_toks,
-            best_start=int(out["best_start"][0]),
-            best_end=int(out["best_end"][0]),
-            confidence=conf,
-            threshold=threshold,
-            generated_answer="",
-            passage_text=h.text,
-            question=question,
-            prefer_extractive=True,
-        )
+        start_i = int(out["best_start"][0])
+        end_i = int(out["best_end"][0])
+        if not lexical_grounded(question, p_toks):
+            from bumblebee.gate import AskResult, span_tokens
+
+            result = AskResult(
+                status="refuse",
+                answer="",
+                confidence=float(conf),
+                reason="weak_lexical_support",
+                citation_span=span_tokens(p_toks, start_i, end_i),
+                citation_start=start_i,
+                citation_end=end_i,
+            )
+        else:
+            result = decide(
+                passage_tokens=p_toks,
+                best_start=start_i,
+                best_end=end_i,
+                confidence=conf,
+                threshold=threshold,
+                generated_answer="",
+                passage_text=h.text,
+                question=question,
+                prefer_extractive=True,
+            )
         raw = float(out["confidence"][0])
         if raw > best_raw:
             best_raw = raw
@@ -962,6 +1273,9 @@ def _soft_adjust_conf(
             conf = conf * 0.35
         if support < 0.35 and concentration < 0.25:
             conf = conf * 0.5
+        # Extra crush when no lexical ground — still not a hard refuse (caller does that)
+        if not lexical_grounded(question, passage_tokens):
+            conf = conf * 0.15
     return conf
 
 
@@ -1082,9 +1396,70 @@ def ask_question(
     chat_fallback = _chat_fallback_map()
     fixed_pid = bool(passage_id and passage_id in pmap)
 
-    def _finalize(best_out, best_passage, conf, source: str, stage_multihop: bool):
+    def _finalize(
+        best_out,
+        best_passage,
+        conf,
+        source: str,
+        stage_multihop: bool,
+        craft_pool: Optional[List[Passage]] = None,
+    ):
+        from bumblebee.answer_craft import craft_or_none, is_usable_answer
+
         p_toks = tokenize(best_passage.text)[:max_p]
         mass_list = best_out["mass"][0].detach().cpu().tolist()[: len(p_toks)]
+        pool = list(craft_pool or [best_passage])
+        # Hard lexical refuse before decode — temperature cannot resurrect this.
+        if not chatty and not lexical_grounded(question, p_toks):
+            # Last chance: a different BM25 candidate may have a real sentence
+            crafted = craft_or_none(question, pool)
+            if crafted is None:
+                refuse_out = {
+                    "status": "refuse",
+                    "answer": "",
+                    "confidence": float(conf),
+                    "reason": "weak_lexical_support",
+                    "citation_span": "",
+                    "citation_start": int(best_out["best_start"][0]),
+                    "citation_end": int(best_out["best_end"][0]),
+                    "passage_id": best_passage.id,
+                    "source": "refuse",
+                    "multihop": stage_multihop or ("+" in best_passage.id),
+                    "mass": mass_list,
+                    "mass_tokens": p_toks,
+                    "history_turns": len(history or []),
+                }
+                try:
+                    from bumblebee.telemetry import bind_root, snapshot_from_forward, write_forward_snapshot
+
+                    bind_root(root)
+                    snap = snapshot_from_forward(best_out, phase="ask", question=question)
+                    snap["decision"] = "refuse"
+                    snap["confidence"] = float(conf)
+                    snap["mass_tokens"] = p_toks[:48]
+                    snap["passage_id"] = best_passage.id
+                    snap["source"] = "refuse"
+                    write_forward_snapshot(snap, root=root)
+                except Exception:
+                    pass
+                return refuse_out
+            # Promote crafted sentence as the answer (skip broken CEC span)
+            ans, pid, cite = crafted
+            return {
+                "status": "answer",
+                "answer": ans,
+                "confidence": float(conf),
+                "reason": None,
+                "citation_span": cite[:160],
+                "citation_start": 0,
+                "citation_end": max(0, len(tokenize(cite)) - 1),
+                "passage_id": pid or best_passage.id,
+                "source": "sentence",
+                "multihop": False,
+                "mass": mass_list,
+                "mass_tokens": p_toks,
+                "history_turns": len(history or []),
+            }
         gen_ids = model.answer_lm.generate(
             best_out["query_state"],
             best_out["evidence"],
@@ -1123,6 +1498,65 @@ def ask_question(
             question=question,
             prefer_extractive=not chatty and source != "synthesize",
         )
+        # Product usability: replace scrapes / unusable spans with best sentence
+        if not chatty and result.status == "answer":
+            if not is_usable_answer(result.answer, question):
+                crafted = craft_or_none(question, pool, fallback_answer="")
+                if crafted is not None:
+                    ans, pid, cite = crafted
+                    from bumblebee.gate import AskResult
+
+                    result = AskResult(
+                        status="answer",
+                        answer=ans,
+                        confidence=result.confidence,
+                        reason=None,
+                        citation_span=cite[:160],
+                        citation_start=0,
+                        citation_end=max(0, len(tokenize(cite)) - 1),
+                    )
+                    src = "sentence"
+                    if pid:
+                        best_passage = next((p for p in pool if p.id == pid), best_passage)
+                else:
+                    refuse_out = {
+                        "status": "refuse",
+                        "answer": "",
+                        "confidence": float(conf),
+                        "reason": "unusable_span",
+                        "citation_span": result.citation_span,
+                        "citation_start": result.citation_start,
+                        "citation_end": result.citation_end,
+                        "passage_id": best_passage.id,
+                        "source": "refuse",
+                        "multihop": stage_multihop or ("+" in best_passage.id),
+                        "mass": mass_list,
+                        "mass_tokens": p_toks,
+                        "history_turns": len(history or []),
+                    }
+                    return refuse_out
+            else:
+                # Even usable CEC answers: prefer a stronger defining sentence if available
+                crafted = craft_or_none(question, pool)
+                if crafted is not None:
+                    ans, pid, cite = crafted
+                    from bumblebee.answer_craft import score_sentence
+
+                    if score_sentence(question, ans) > score_sentence(question, result.answer) + 0.15:
+                        from bumblebee.gate import AskResult
+
+                        result = AskResult(
+                            status="answer",
+                            answer=ans,
+                            confidence=result.confidence,
+                            reason=None,
+                            citation_span=cite[:160],
+                            citation_start=0,
+                            citation_end=max(0, len(tokenize(cite)) - 1),
+                        )
+                        src = "sentence"
+                        if pid:
+                            best_passage = next((p for p in pool if p.id == pid), best_passage)
         if result.status == "answer" and _degenerate_text(result.answer):
             refuse_out = {
                 "status": "refuse",
@@ -1222,7 +1656,14 @@ def ask_question(
                 best_conf = conf
         if best_out is None or best_passage is None:
             return None, scored
-        finalized = _finalize(best_out, best_passage, best_conf, source, multihop)
+        finalized = _finalize(
+            best_out,
+            best_passage,
+            best_conf,
+            source,
+            multihop,
+            craft_pool=list(union_passages or cands),
+        )
         return finalized, scored
 
     # --- Stage 1: singles ---
@@ -1285,7 +1726,7 @@ def ask_question(
 
 
 @torch.no_grad()
-def evaluate(root: Path, *, top_k: int = 3) -> dict:
+def evaluate(root: Path, *, top_k: int = 3, max_examples: Optional[int] = None) -> dict:
     """
     Same-protocol holdout eval: BM25 retrieves candidates (no gold passage_id gift).
     Also reports oracle-passage F1 as a diagnostic column only.
@@ -1300,6 +1741,8 @@ def evaluate(root: Path, *, top_k: int = 3) -> dict:
     pmap = passage_index(passages)
     evals = load_evals(root / "data" / "evals" / "questions.jsonl")
     _, test_evals = train_eval_split(evals)
+    if max_examples is not None and max_examples > 0:
+        test_evals = test_evals[: int(max_examples)]
     corpus_tokens = {t for p in passages for t in tokenize(p.text) if t not in _STOP}
     index = get_bm25_index(root, passages)
 
@@ -1326,10 +1769,25 @@ def evaluate(root: Path, *, top_k: int = 3) -> dict:
             if content_support(question, p_toks) < 0.12 or novel_content_ratio(question, corpus_tokens) >= 0.5:
                 conf = conf * 0.35
         conf = _apply_cal(conf, temperature, platt_a, platt_b, use_platt)
+        start_i = int(out["best_start"][0])
+        end_i = int(out["best_end"][0])
+        if not chatty and not lexical_grounded(question, p_toks):
+            from bumblebee.gate import AskResult, span_tokens
+
+            result = AskResult(
+                status="refuse",
+                answer="",
+                confidence=float(conf),
+                reason="weak_lexical_support",
+                citation_span=span_tokens(p_toks, start_i, end_i),
+                citation_start=start_i,
+                citation_end=end_i,
+            )
+            return result, float(out["confidence"][0])
         result = decide(
             passage_tokens=p_toks,
-            best_start=int(out["best_start"][0]),
-            best_end=int(out["best_end"][0]),
+            best_start=start_i,
+            best_end=end_i,
             confidence=conf,
             threshold=threshold,
             generated_answer="",

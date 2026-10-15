@@ -40,8 +40,21 @@ class BM25Index:
             df.update(set(d))
         self.idf = {t: _bm25_idf(c, len(self.docs)) for t, c in df.items()}
 
+    # Query-side stops: drop interrogatives so rare URL tokens (e.g. "whats" in a
+    # citation link) cannot dominate retrieval for "whats <typo>" asks.
+    _QUERY_STOP = frozenset({
+        "a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "is", "are",
+        "was", "were", "be", "been", "being", "what", "whats", "what's", "which",
+        "who", "whom", "whos", "who's", "how", "hows", "how's", "why", "when",
+        "whens", "where", "wheres", "where's", "do", "does", "did", "can", "could",
+        "should", "would", "with", "as", "by", "from", "that", "this", "these",
+        "those", "it", "its", "at", "into", "about", "please", "tell", "me",
+    })
+
     def score(self, query: str) -> List[RetrievalHit]:
-        q = tokenize(query)
+        q = [t for t in tokenize(query) if t not in self._QUERY_STOP and len(t) > 1]
+        if not q:
+            q = tokenize(query)
         hits: List[RetrievalHit] = []
         for i, doc in enumerate(self.docs):
             tf = Counter(doc)

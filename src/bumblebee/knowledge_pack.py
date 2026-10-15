@@ -54,7 +54,7 @@ _TOPICS: List[Tuple[Tuple[str, ...], str, str]] = [
         "encoders → SoftCorrelator (sparsemax evidence mass) → CoverageGate (answer vs refuse) → "
         "extractive citation + small GRU answer head. Knowledge is a frozen pack plus optional "
         "non-LLM live tools (prices/time/weather). It is not a general open-world ChatGPT clone; "
-        "it is evidence-gated correlator QA with coverage-gated refusal.",
+        "it is evidence-gated correlator QA with calibrated refusal.",
     ),
     (
         ("sparsemax", "softmax"),
@@ -94,6 +94,65 @@ _TOPICS: List[Tuple[Tuple[str, ...], str, str]] = [
         "GRU core — so headline parameter count can be ~500M while active dense compute stays small.",
     ),
     (
+        ("nvidia", "nvda"),
+        "knowledge",
+        "NVIDIA is an American technology company best known for GPUs (GeForce/Quadro/Tesla), "
+        "CUDA, and AI accelerators (e.g. data-center GPUs). It designs chips used in gaming, "
+        "professional graphics, and large-scale machine learning — not a CPU company like Intel/AMD.",
+    ),
+    (
+        ("tony stark", "iron man"),
+        "knowledge",
+        "Tony Stark is the Marvel Comics / MCU character Iron Man. His full name is Anthony Edward "
+        "\"Tony\" Stark — a fictional genius industrialist; there is no separate \"real-world\" civil "
+        "name beyond that. (Portrayed on film by Robert Downey Jr.)",
+    ),
+    (
+        ("google", "alphabet inc", "alphabet company"),
+        "knowledge",
+        "Google is a US technology company (Alphabet Inc.) best known for Search, Android, YouTube, "
+        "Cloud, and advertising. It started as a web search engine and is not a hardware-first GPU firm.",
+    ),
+    (
+        ("microsoft", "msft"),
+        "knowledge",
+        "Microsoft is a US technology company known for Windows, Office, Azure cloud, Xbox, and "
+        "developer tools. Satya Nadella is CEO; it is distinct from NVIDIA (GPUs) and Google (Search).",
+    ),
+    (
+        ("apple", "iphone", "aapl"),
+        "knowledge",
+        "Apple is a US consumer-technology company known for the iPhone, Mac, iPad, Apple Watch, "
+        "and services (App Store, iCloud). It designs hardware + software; chips are Apple Silicon.",
+    ),
+    (
+        ("bitcoin", "btc"),
+        "knowledge",
+        "Bitcoin (BTC) is a decentralized digital currency launched in 2009. It uses a public "
+        "blockchain and proof-of-work mining; there is no central issuer. For live price, ask "
+        "\"bitcoin price\".",
+    ),
+    (
+        ("python programming", "python language", "what is python"),
+        "knowledge",
+        "Python is a high-level programming language known for readable syntax, large libraries "
+        "(NumPy, PyTorch, Django), and use in scripting, data science, and AI. "
+        "(If you meant a snake, say so — I assumed the language.)",
+    ),
+    (
+        ("javascript", "ecmascript"),
+        "knowledge",
+        "JavaScript is the programming language of the web browser (and Node.js on servers). "
+        "It is event-driven and loosely typed; TypeScript adds static types on top.",
+    ),
+    (
+        ("india", "republic of india"),
+        "knowledge",
+        "India is a country in South Asia; capital New Delhi. It is a federal republic and the "
+        "world's most populous country. For \"today's date in India\", ask for the time/date tool "
+        "or a specific calendar question — I don't have a live Indian clock unless you ask for time.",
+    ),
+    (
         ("photosynthesis",),
         "knowledge",
         "Photosynthesis is how plants convert light, water, and carbon dioxide into sugar and oxygen.",
@@ -102,6 +161,18 @@ _TOPICS: List[Tuple[Tuple[str, ...], str, str]] = [
         ("holi",),
         "knowledge",
         "Holi is an Indian festival celebrating the start of Spring with colors, food, and dancing.",
+    ),
+    (
+        ("gravity",),
+        "knowledge",
+        "Gravity is the attractive force between masses. Near Earth it gives weight (~9.8 m/s² "
+        "acceleration); Newton described it as inverse-square; Einstein describes it as spacetime curvature.",
+    ),
+    (
+        ("dna", "deoxyribonucleic"),
+        "knowledge",
+        "DNA (deoxyribonucleic acid) stores genetic information as a double helix of base pairs "
+        "(A–T, C–G). Cells copy DNA for inheritance; genes are DNA segments that code for proteins.",
     ),
 ]
 
@@ -116,17 +187,22 @@ _EXPLAIN_HINT = re.compile(
 def lookup_knowledge(question: str) -> Optional[Tuple[str, str]]:
     """Return (answer, skill) if an educational topic matches."""
     q = question.lower().strip()
-    # Prefer longer keyword matches
+    # Prefer longer keyword matches; require word boundaries to avoid 'apple' in 'pineapple'
     best: Optional[Tuple[int, str, str]] = None
     for keys, skill, answer in _TOPICS:
         for key in keys:
-            if key in q:
-                score = len(key)
-                if best is None or score > best[0]:
-                    best = (score, answer, skill)
+            if " " in key:
+                if key in q:
+                    score = len(key)
+                    if best is None or score > best[0]:
+                        best = (score, answer, skill)
+            else:
+                if re.search(rf"\b{re.escape(key)}\b", q):
+                    score = len(key)
+                    if best is None or score > best[0]:
+                        best = (score, answer, skill)
     if best is None:
         return None
-    # For generic "what is X" without our topics, caller handles refuse
     return best[1], best[2]
 
 

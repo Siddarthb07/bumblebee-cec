@@ -39,6 +39,53 @@ class LocalStateEncoder(nn.Module):
         return self.out_norm(torch.stack(states, dim=1))
 
 
+class SelectiveStateEncoder(nn.Module):
+    """
+    Mamba-lite discrete selective SSM — transformer-free, O(T) sequential scan.
+    Input-dependent Δ / B / C; fixed negative diagonal A. Same interface as LocalStateEncoder.
+    """
+
+    def __init__(
+        self, vocab_size: int, dim: int = 128, pad_id: int = 0, delta_max: float = 8.0
+    ):
+        super().__init__()
+        self.pad_id = pad_id
+        self.dim = dim
+        self.delta_max = float(delta_max)
+        self.emb = nn.Embedding(vocab_size, dim, padding_idx=pad_id)
+        self.delta_proj = nn.Linear(dim, dim)
+        self.B_proj = nn.Linear(dim, dim)
+        self.C_proj = nn.Linear(dim, dim)
+        # log(-A) style: A = -softplus(param) so A < 0
+        self.log_A_neg = nn.Parameter(torch.randn(dim) * 0.1)
+        self.out_norm = nn.LayerNorm(dim)
+
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        x = self.emb(token_ids)
+        b, t, d = x.shape
+        if t == 0:
+            return self.out_norm(x.new_zeros(b, 1, d))
+        A = -F.softplus(self.log_A_neg)  # [D], negative
+        h = x.new_zeros(b, d)
+        states = []
+        for step in range(t):
+            xt = x[:, step]
+            delta = F.softplus(self.delta_proj(xt)).clamp(min=1e-4, max=self.delta_max)
+            B = self.B_proj(xt)
+            C = self.C_proj(xt)
+            # Discrete: h' = exp(delta * A) * h + (1 - exp(delta * A)) * (B ⊙ x)
+            # A < 0 so delta*A is negative; clamp decay for stability
+            decay = torch.exp((delta * A.unsqueeze(0)).clamp(min=-20.0, max=0.0))
+            h = decay * h + (1.0 - decay) * (B * xt)
+            h = torch.nan_to_num(h, nan=0.0, posinf=0.0, neginf=0.0)
+            y = C * h
+            mask = (token_ids[:, step] != self.pad_id).float().unsqueeze(-1)
+            h = h * mask
+            y = y * mask
+            states.append(y)
+        return self.out_norm(torch.stack(states, dim=1))
+
+
 def sparsemax(logits: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """Sparsemax (Martins & Astudillo) — sparse differentiable alternative to softmax."""
     # Sort
@@ -130,6 +177,87 @@ class SoftCorrelator(nn.Module):
         return mass, evidence
 
 
+class GatedDeltaCorrelator(nn.Module):
+    """
+    Query-conditioned gated-delta mix over passage states, then classic mass bind.
+    Transformer-free linear mixer — SoftCorrelator API: (q, p_states, mask) -> mass, evidence.
+    """
+
+    def __init__(
+        self,
+        dim: int = 128,
+        temperature: float = 1.0,
+        mass_fn: str = "sparsemax",
+        topk: int = 8,
+        learn_temperature: bool = True,
+        delta_max: float = 2.0,
+    ):
+        super().__init__()
+        self.dim = dim
+        self.delta_max = float(delta_max)
+        self.gate_proj = nn.Linear(dim * 2, dim)
+        self.delta_proj = nn.Linear(dim * 2, dim)
+        self.query_proj = nn.Linear(dim, dim)
+        self.key_proj = nn.Linear(dim, dim)
+        self.mass_fn = (mass_fn or "sparsemax").lower()
+        self.topk = topk
+        if learn_temperature:
+            self.log_tau = nn.Parameter(torch.tensor(float(math.log(max(temperature, 1e-3)))))
+            self._fixed_tau = None
+        else:
+            self.register_parameter("log_tau", None)
+            self._fixed_tau = float(temperature)
+
+    @property
+    def temperature(self) -> float:
+        if self.log_tau is not None:
+            return float(torch.nn.functional.softplus(self.log_tau).clamp(min=1e-3).item())
+        return float(self._fixed_tau or 1.0)
+
+    def forward(
+        self, query_state: torch.Tensor, passage_states: torch.Tensor, passage_mask: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        query_state: [B, D]
+        passage_states: [B, Tp, D]
+        passage_mask: [B, Tp]
+        """
+        b, tp, d = passage_states.shape
+        h = passage_states.new_zeros(b, d)
+        refined = []
+        q_exp = query_state
+        for t in range(tp):
+            kt = passage_states[:, t]
+            cat = torch.cat([q_exp, kt], dim=-1)
+            g = torch.sigmoid(self.gate_proj(cat))
+            # Bound delta — unbounded softplus + recurrent mix can explode conf/mass
+            delta = F.softplus(self.delta_proj(cat)).clamp(min=1e-4, max=self.delta_max)
+            h = (1.0 - g) * h + g * delta * (kt - h)
+            h = torch.nan_to_num(h, nan=0.0, posinf=0.0, neginf=0.0)
+            m = passage_mask[:, t].unsqueeze(-1)
+            h = h * m
+            refined.append(h)
+        refined_states = torch.stack(refined, dim=1)  # [B,Tp,D]
+        q = self.query_proj(query_state).unsqueeze(1)
+        k = self.key_proj(refined_states)
+        if self.log_tau is not None:
+            tau = torch.nn.functional.softplus(self.log_tau).clamp(min=1e-3)
+        else:
+            tau = max(self._fixed_tau or 1.0, 1e-6)
+        logits = (q * k).sum(-1) / tau
+        logits = logits.masked_fill(passage_mask == 0, -1e4)
+        if self.mass_fn == "softmax":
+            mass = torch.softmax(logits, dim=-1)
+        elif self.mass_fn in {"topk", "top-k", "top_k"}:
+            mass = topk_softmax(logits, k=self.topk, dim=-1)
+        else:
+            mass = sparsemax(logits, dim=-1)
+        mass = mass * passage_mask
+        mass = mass / mass.sum(dim=-1, keepdim=True).clamp(min=1e-8)
+        evidence = torch.bmm(mass.unsqueeze(1), refined_states).squeeze(1)
+        return mass, evidence
+
+
 class CoverageGate(nn.Module):
     """Calibrated coverage from evidence mass concentration + raw score head."""
 
@@ -164,7 +292,8 @@ class CoverageGate(nn.Module):
         max_ent = valid.log().clamp(min=math.log(2.0))
         concentration = (1.0 - (ent / max_ent)).clamp(0.0, 1.0)
         logits = self.score(torch.cat([query_state, evidence], dim=-1)).squeeze(-1)
-        conf = torch.sigmoid(logits) * concentration
+        conf = (torch.sigmoid(logits) * concentration).clamp(0.0, 1.0)
+        conf = torch.nan_to_num(conf, nan=0.0, posinf=1.0, neginf=0.0)
         return conf, concentration
 
 
@@ -225,6 +354,14 @@ class GenerativeAnswerDecoder(nn.Module):
         self.cond = nn.Linear(dim * 2, dim)
         self.rnn = nn.GRUCell(dim, dim)
         self.out = nn.Linear(dim, vocab_size)
+        self.hearth = None
+
+    def enable_hearth(self):
+        """Exact word-table argmax. Short list only when the residual certifies it."""
+        from bumblebee.hearth import HearthHead
+
+        self.hearth = HearthHead.from_linear(self.out)
+        return self.hearth
 
     def teacher_force(
         self,
@@ -262,15 +399,63 @@ class GenerativeAnswerDecoder(nn.Module):
         h = torch.tanh(self.cond(torch.cat([query_state, evidence], dim=-1)))
         tok = torch.full((b,), self.pad_id, device=query_state.device, dtype=torch.long)
         outs = []
+        self.hearth_seals = []
         for _ in range(max_len):
             x = self.emb(tok)
             h = self.rnn(x, h)
-            logits = self.out(h)
-            tok = logits.argmax(dim=-1)
+            if self.hearth is not None:
+                tok = self.hearth.argmax(h)
+                if self.hearth.seal is not None:
+                    self.hearth_seals.append(self.hearth.seal)
+            else:
+                tok = self.out(h).argmax(dim=-1)
             outs.append(tok)
             if eos_id is not None and bool((tok == eos_id).all()):
                 break
         return torch.stack(outs, dim=1)
+
+
+def build_encoder(
+    vocab_size: int,
+    dim: int,
+    pad_id: int,
+    encoder_kind: str = "gru",
+    delta_max: float = 8.0,
+) -> nn.Module:
+    kind = (encoder_kind or "gru").lower()
+    if kind in {"ssm", "selective", "mamba"}:
+        return SelectiveStateEncoder(
+            vocab_size, dim=dim, pad_id=pad_id, delta_max=delta_max
+        )
+    return LocalStateEncoder(vocab_size, dim=dim, pad_id=pad_id)
+
+
+def build_correlator(
+    dim: int,
+    mass_fn: str = "sparsemax",
+    correlator_kind: str = "classic",
+    learn_temperature: bool = True,
+    temperature: float = 1.0,
+    topk: int = 8,
+    delta_max: float = 2.0,
+) -> nn.Module:
+    kind = (correlator_kind or "classic").lower()
+    if kind in {"gated_delta", "gated-delta", "delta"}:
+        return GatedDeltaCorrelator(
+            dim=dim,
+            mass_fn=mass_fn,
+            learn_temperature=learn_temperature,
+            temperature=temperature,
+            topk=topk,
+            delta_max=delta_max,
+        )
+    return SoftCorrelator(
+        dim=dim,
+        mass_fn=mass_fn,
+        learn_temperature=learn_temperature,
+        temperature=temperature,
+        topk=topk,
+    )
 
 
 class CECModel(nn.Module):
@@ -282,17 +467,40 @@ class CECModel(nn.Module):
         span_len: int = 12,
         mass_fn: str = "sparsemax",
         learn_temperature: bool = True,
+        encoder_kind: str = "gru",
+        correlator_kind: str = "classic",
+        temperature: float = 1.0,
+        topk: int = 8,
+        encoder_delta_max: float = 8.0,
+        correlator_delta_max: float = 2.0,
     ):
         super().__init__()
-        self.encoder = LocalStateEncoder(vocab_size, dim=dim, pad_id=pad_id)
-        self.correlator = SoftCorrelator(
-            dim=dim, mass_fn=mass_fn, learn_temperature=learn_temperature
+        self.encoder_kind = (encoder_kind or "gru").lower()
+        self.correlator_kind = (correlator_kind or "classic").lower()
+        self.encoder = build_encoder(
+            vocab_size,
+            dim,
+            pad_id,
+            self.encoder_kind,
+            delta_max=encoder_delta_max,
+        )
+        self.correlator = build_correlator(
+            dim=dim,
+            mass_fn=mass_fn,
+            correlator_kind=self.correlator_kind,
+            learn_temperature=learn_temperature,
+            temperature=temperature,
+            topk=topk,
+            delta_max=correlator_delta_max,
         )
         self.gate = CoverageGate(dim=dim)
         self.decoder = ExtractiveDecoder(dim=dim, span_len=span_len)
         self.answer_lm = GenerativeAnswerDecoder(vocab_size, dim=dim, pad_id=pad_id)
         self.pad_id = pad_id
         self.mass_fn = mass_fn
+        self.topk = topk
+        self.encoder_delta_max = encoder_delta_max
+        self.correlator_delta_max = correlator_delta_max
 
     def encode(self, token_ids: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         states = self.encoder(token_ids)

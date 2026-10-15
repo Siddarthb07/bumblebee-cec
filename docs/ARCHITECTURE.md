@@ -2,7 +2,7 @@
 
 ## v2 product shape
 
-**Bumblebee = CEC.** Chat, math, and short code hit a frozen skill pack or a deterministic live tool first. If those miss, CEC `ask_question` runs. No open-LM sidecar. `mode=open` hard-refuses.
+**Bumblebee = CEC.** Chat / math / code live in the frozen skill pack and are answered by CEC. No open-LM sidecar.
 
 ```text
 User question
@@ -21,6 +21,10 @@ User question
 ## Goal (CEC core)
 
 Bumblebee’s core is a **transformer-free** closed-corpus correlator: local recurrent state + SoftCorrelator evidence binding + coverage-gated generative answers. It answers from a frozen pack, holds short conversation, and refuses when coverage is low.
+
+**Hearth** sits on `GenerativeAnswerDecoder`: the next word is the dense argmax, scored from an int8 copy plus the exact residual on the strongest hidden-state coordinates. A short list is used only when that bound certifies the winner. See `docs/HEARTH_BENCH.md`. It does not add parameters. The measured checkpoint is **127,106,806** params (dim=640). It is not in this clone. The research history stores it as `artifacts/cec.pt` via Git LFS.
+
+**Experimental linear backend** (not product default): `SelectiveStateEncoder` (SSM) + `GatedDeltaCorrelator`, trained primarily by **distilling** a frozen classic `cec.pt` teacher (`train --distill` → `artifacts/cec_linear.pt`). See `docs/ABLATION_LINEAR.md`. Default ask path stays GRU + classic SoftCorrelator.
 
 At demo scale this is a small CEC. The architectural bet (hypothesis, not a measured 30B result) is that the same stack scales to larger data/params with **linear-time** evidence binding, cheaper inference, and much larger effective context than quadratic attention — while keeping abstention as a first-class path.
 
@@ -42,6 +46,9 @@ Frozen passages.jsonl  (+ Dolly / chat seed)
    GenerativeAnswerDecoder   OUTSIDE_DATASET
    (GRU LM on [q; evidence])   (low_coverage)
                |
+          Hearth word table
+   (same id as dense argmax)
+               |
        FaithfulnessCheck vs passage
           /          \
         pass        fail -> unfaithful_decode
@@ -56,12 +63,13 @@ Frozen passages.jsonl  (+ Dolly / chat seed)
 | `router.py` | Intent classify + CEC `ask_hybrid` (no open LM) |
 | `tokenize.py` | Closed-corpus vocab; regex word tokens; `<eos>` |
 | `model.py` | CEC stack + `GenerativeAnswerDecoder` |
+| `hearth.py` | Certified word-table argmax for that decoder |
 | `gate.py` | Decision object, soft faithfulness, token F1 |
 | `train.py` | Corpus train / `ask_question` / eval |
 | `hf_ingest.py` | Dolly-15k + chat seed (optional `[ingest]` extra) |
 | `baselines.py` | BM25+abstain, hashing-embed+abstain |
 | `metrics.py` | ECE, risk-coverage, AURC |
-| `cli.py` | `ingest`, `train`, `ask`, `eval`, `bench`, `chat`, `dash`, `arch-dash` |
+| `cli.py` | `ingest-hf`, `train`, `ask`, `eval`, `bench`, `hearth-bench`, `chat`, `dash` |
 
 ## SoftCorrelator math (v1)
 

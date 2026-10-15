@@ -30,8 +30,8 @@ python -m bumblebee.cli ask "What is photosynthesis?" --mode corpus
 
 ## What to say
 
-- “On the sealed pack, BM25 leads in-domain F1, 0.136 to 0.122.”
-- “Product skills are 20/20. Core CEC on that suite is 4/17.”
+- “On the sealed pack, BM25 leads in-domain F1, 0.133 to 0.131. CEC n is 497.”
+- “Product skills are 20/20. Core CEC on that suite is 10/17.”
 - “Nothing is patented. Prior art is listed in docs/PRIOR_ART.md.”
 
 ## What not to say

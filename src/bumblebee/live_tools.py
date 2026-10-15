@@ -23,11 +23,49 @@ _ETH_RE = re.compile(
     r"\b(ethereum|eth)\b.*\b(price|worth|cost)\b|\b(price|worth|cost)\b.*\b(ethereum|eth)\b",
     re.I,
 )
-_TIME_RE = re.compile(
-    r"\b(what\s+time\s+is\s+it|current\s+time|what'?s\s+the\s+time|"
-    r"what\s+day\s+is\s+(it|today)|today'?s\s+date|what\s+is\s+today'?s\s+date)\b",
+
+# Historical date facts must NOT hit the live clock (when was X founded / born…)
+_HISTORICAL_WHEN_RE = re.compile(
+    r"\bwhen\s+(?:was|were|did)\b.+\b|"
+    r"\b(?:founded|born|invented|established|created|released|built|opened|started)\b",
     re.I,
 )
+
+# Live temporal: current clock/calendar — intent-based, not a phrase allowlist
+_LIVE_TEMPORAL_RE = re.compile(
+    r"\b(?:"
+    r"(?:what|whats|what'?s|tell\s+me|give\s+me|check|show)\s+(?:(?:is|the)\s+)?"
+    r"(?:current\s+|local\s+|today'?s?\s+|todays\s+)?"
+    r"(?:time|date|day|clock)\b|"
+    r"(?:current|local|today'?s?|todays)\s+(?:time|date|day)\b|"
+    r"(?:time|date)\s+(?:is\s+it|now|today|please)\b|"
+    r"what\s+day\s+is\s+(?:it|today)\b|"
+    r"\bdate\s+(?:in|for|today|now)\b"
+    r")",
+    re.I,
+)
+
+
+def is_live_temporal(question: str) -> bool:
+    """True when the user wants the *current* clock/date, not a historical fact."""
+    q = (question or "").strip()
+    if not q:
+        return False
+    # "when was X founded" / "born in" → corpus/web, not wall clock
+    if _HISTORICAL_WHEN_RE.search(q) and not re.search(
+        r"\b(today|now|current|clock)\b", q, re.I
+    ):
+        # Allow "what is today's date" even if something else matches oddly
+        if not re.search(r"\b(today|now|current)\b.+\b(date|time)\b|\b(date|time)\b.+\b(today|now|current)\b", q, re.I):
+            if re.search(r"\bwhen\s+(?:was|were|did)\b", q, re.I):
+                return False
+            if re.search(
+                r"\b(?:founded|born|invented|established|created|released)\b", q, re.I
+            ):
+                return False
+    return bool(_LIVE_TEMPORAL_RE.search(q))
+
+
 _WEATHER_RE = re.compile(
     r"\b(?:weather|temperature|forecast)\b(?:\s+(?:in|for|at))?\s+([A-Za-z][A-Za-z\s\-']{1,40})|"
     r"\b(?:what(?:'?s| is)\s+the\s+)?(?:weather|temperature)\b",
@@ -271,7 +309,7 @@ def try_live_or_tool(question: str) -> Optional[Tuple[str, str, str]]:
                 shown = f"{val:.6g}"
             return (f"{m.group(1)} {op} {m.group(3)} = {shown}.", "calc", "math")
 
-    if _TIME_RE.search(q):
+    if is_live_temporal(q):
         now = datetime.now().astimezone()
         utc = datetime.now(timezone.utc)
         answer = (

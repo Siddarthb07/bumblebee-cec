@@ -8,13 +8,13 @@ This bench answers 'how far does CEC scale on memory vs modern LLMs?' It does no
 
 | Metric | Value |
 | --- | ---: |
-| Params | 24.292 M |
-| Checkpoint (`cec.pt`) | 0.0905 GB |
+| Params | 127.107 M |
+| Checkpoint (`cec.pt`) | 0.4735 GB |
 | Corpus (`passages.jsonl`) | 0.0072 GB |
 | Passages | 11568 |
-| Peak RSS (load + 8 asks) | 0.3985 GB |
-| Δ RSS vs baseline | 0.1871 GB |
-| Mean ask latency | 3.4555 s |
+| Peak RSS (load + 8 asks) | 0.717 GB |
+| Δ RSS vs baseline | 0.5587 GB |
+| Mean ask latency | 8.5802 s |
 
 _CEC peak RSS includes Python/torch + corpus index; LLM catalog rows are weight-only estimates and understate KV-cache cost._
 
@@ -23,7 +23,7 @@ _CEC peak RSS includes Python/torch + corpus index; LLM catalog rows are weight-
 | Model | Params (B) | FP16 weights (GB) | INT8 (GB) | CEC peak RSS smaller? |
 | --- | ---: | ---: | ---: | :---: |
 | gpt2 | 0.124 | 0.25 | 0.13 | no |
-| gpt2-medium | 0.355 | 0.71 | 0.36 | yes |
+| gpt2-medium | 0.355 | 0.71 | 0.36 | no |
 | SmolLM-360M | 0.36 | 0.72 | 0.36 | yes |
 | Pythia-410M | 0.41 | 0.82 | 0.41 | yes |
 | Llama-3.2-1B | 1.0 | 2.0 | 1.0 | yes |
@@ -37,14 +37,13 @@ _CEC peak RSS includes Python/torch + corpus index; LLM catalog rows are weight-
 
 ## Scale reading
 
-- CEC peak RSS **0.399 GB** vs Mistral-7B FP16 weights (~14 GB): **0.0285×**
-- vs Llama-3.1-70B FP16 (~140 GB): **0.0028×**
-- vs 405B-class FP16 (~810 GB): **0.0005×**
-- Closest catalog FP16 footprint: `gpt2`
+- CEC peak RSS **0.717 GB** vs Mistral-7B FP16 weights (~14 GB): **0.0512×**
+- vs Llama-3.1-70B FP16 (~140 GB): **0.0051×**
+- vs 405B-class FP16 (~810 GB): **0.0009×**
+- Closest catalog FP16 footprint: `SmolLM-360M`
 
 CEC **beats** these FP16 weight footprints on raw memory:
 
-- gpt2-medium
 - SmolLM-360M
 - Pythia-410M
 - Llama-3.2-1B
