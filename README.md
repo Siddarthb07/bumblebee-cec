@@ -57,7 +57,6 @@ Training the sealed pack (11568 passages) on a laptop takes a while. `ingest` on
 | Versus gpt2-medium | Skills wins are mostly packs and tools. Held-out quality is not a CEC win. [docs/LLM_COMPARE.md](docs/LLM_COMPARE.md) |
 | Calibration | Answered-subset ECE is about 0.942. The gate is not calibrated. |
 | OOD refuse on entity-gap / far-ood holdouts | Precision 1.0 on small N. Recall 0.767 entity-gap, 0.957 far-ood. |
-| `docs/SYSTEMS_BENCH.md` | Quarantined. Do not cite. |
 | Patent | Nothing filed. [docs/PATENT_LETTER.md](docs/PATENT_LETTER.md) |
 | Scale to 30B | Architectural hypothesis. Not a measured run. |
 

@@ -21,7 +21,6 @@ If a sentence disagrees with those two files, the sentence is stale.
 | [MESSAGING.md](MESSAGING.md) | Telegram stub. WhatsApp is not shipped. |
 | [MODEL_ADVICE.md](MODEL_ADVICE.md) | Historical advisory. Numbers in it predate this sealed pack. |
 | [MODEL_ADVICE_SYNTHESIS.md](MODEL_ADVICE_SYNTHESIS.md) | Same advisory, merged. Use RESULTS for figures. |
-| [SYSTEMS_BENCH.md](SYSTEMS_BENCH.md) | **Quarantined. Do not cite.** |
 | [CONCEPTUAL_DEPTH.md](CONCEPTUAL_DEPTH.md) | How to talk about the measured split. |
 | [PORTFOLIO.md](PORTFOLIO.md) | Short demo script. Pack answers are labeled as pack answers. |
 

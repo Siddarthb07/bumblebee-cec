@@ -55,7 +55,6 @@ Do not equate sparse hash params with dense transformer FLOPs.
 - If BM25 wins in-domain F1 on the **retrieved** protocol, say so.
 - On this pack, **BM25 leads CEC** on retrieved in-domain F1 (0.133 vs 0.131).
 - Prefer `ece_answered` over mixed ECE (correct refuses at low conf inflate mixed ECE).
-- `docs/SYSTEMS_BENCH.md` is quarantined — do not cite.
 - Scaled CEC asset pack ≠ frontier LLM (no transformer backend).
 - See also `docs/MEMORY_BENCH.md`, `docs/LLM_COMPARE.md`, `docs/MODEL_ADVICE_SYNTHESIS.md`, `docs/INSANE_ROADMAP.md`.
 
